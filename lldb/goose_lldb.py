@@ -1499,6 +1499,100 @@ def cmd_globals(debugger, command, exe_ctx, result, internal_dict):
         result.SetError("goose-globals: %s" % e)
 
 
+def _goose_frame_index(thread):
+    """The innermost frame on a .goose line, or None."""
+    for i in range(thread.GetNumFrames()):
+        fs = thread.GetFrameAtIndex(i).GetLineEntry().GetFileSpec()
+        if (fs.GetFilename() or "").endswith(".goose"):
+            return i
+    return None
+
+
+def on_runtime_error(frame, bp_loc, internal_dict):
+    """goose-catch's breakpoint callback, in gs_fail, where every Goose
+    runtime error (a failed check, assert or abort) ends: prints the error
+    as the runtime will, and selects the Goose frame that failed, so bt,
+    goose-locals and frame variable start there (CatchHook selects it: a
+    callback's selection does not outlast the stop). Stops."""
+    try:
+        err = lldb.SBError()
+        proc = frame.GetThread().GetProcess()
+        msg, file_, line = "", "", 0
+        m, n = frame.FindVariable("msg"), frame.FindVariable("len")
+        if m.IsValid() and n.IsValid():
+            k = n.GetValueAsSigned()
+            if 0 < k <= MAX_TEXT:
+                b = proc.ReadMemory(m.GetValueAsUnsigned(), k, err)
+                if not err.Fail():
+                    msg = b.decode("utf-8", "replace")
+        f, l = frame.FindVariable("file"), frame.FindVariable("line")
+        if f.IsValid() and f.GetValueAsUnsigned():
+            file_ = proc.ReadCStringFromMemory(f.GetValueAsUnsigned(), 1024, err) or ""
+        if l.IsValid():
+            line = l.GetValueAsSigned()
+        where = " (%s:%d)" % (file_, line) if file_ else ""
+        print("goose runtime error: %s%s" % (msg or "<message not in the debug info>", where))
+    except Exception as e:
+        print("goose-catch: %s" % e)
+    return True
+
+
+class CatchHook:
+    """goose-catch's stop hook: when a thread stops in gs_fail, selects the
+    Goose frame that failed."""
+
+    def __init__(self, target, extra_args, internal_dict):
+        pass
+
+    def handle_stop(self, exe_ctx, stream):
+        try:
+            thread = exe_ctx.GetThread()
+            if thread.IsValid() and thread.GetFrameAtIndex(0).GetFunctionName() == "gs_fail":
+                i = _goose_frame_index(thread)
+                if i is not None:
+                    thread.SetSelectedFrame(i)
+        except Exception:
+            pass
+        return True
+
+
+_catch_hooks = {}   # Target -> the stop hook's id.
+
+
+def cmd_catch(debugger, command, exe_ctx, result, internal_dict):
+    """goose-catch [off]: stop on Goose runtime errors -- a failed bounds,
+    overflow or tag check, an assert, an abort -- at the Goose line that
+    failed, rather than letting the program exit; `off` removes it."""
+    try:
+        target = exe_ctx.GetTarget() if exe_ctx.GetTarget().IsValid() else debugger.GetSelectedTarget()
+        for i in reversed(range(target.GetNumBreakpoints())):
+            bp = target.GetBreakpointAtIndex(i)
+            names = lldb.SBStringList()
+            bp.GetNames(names)
+            if any(names.GetStringAtIndex(k) == "goose-catch" for k in range(names.GetSize())):
+                target.BreakpointDelete(bp.GetID())
+        key = target.GetExecutable().fullpath
+        if command.strip() == "off":
+            if key in _catch_hooks:
+                debugger.HandleCommand("target stop-hook delete %d" % _catch_hooks.pop(key))
+            result.AppendMessage("goose-catch off")
+            return
+        if key not in _catch_hooks:
+            ret = lldb.SBCommandReturnObject()
+            debugger.GetCommandInterpreter().HandleCommand(
+                "target stop-hook add -P %s.CatchHook" % __name__, ret)
+            m = re.search(r"#(\d+)", ret.GetOutput() or "")
+            if m:
+                _catch_hooks[key] = int(m.group(1))
+        bp = target.BreakpointCreateByName("gs_fail")
+        bp.AddName("goose-catch")
+        bp.SetScriptCallbackFunction("%s.on_runtime_error" % __name__)
+        result.AppendMessage("goose-catch: stops on Goose runtime errors (%d location%s)"
+                             % (bp.GetNumLocations(), "" if bp.GetNumLocations() == 1 else "s"))
+    except Exception as e:
+        result.SetError("goose-catch: %s" % e)
+
+
 def frame_name(frame, internal_dict=None):
     """A frame's function under its Goose name, with the type arguments of a
     generic instance: from the debug map, else the C name. For frame-format:
@@ -1650,4 +1744,5 @@ def __lldb_init_module(debugger, internal_dict):
     debugger.HandleCommand("command script add -o -f %s.cmd_as goose-as" % mod)
     debugger.HandleCommand("command script add -o -f %s.cmd_bt goose-bt" % mod)
     debugger.HandleCommand("command script add -o -f %s.cmd_globals goose-globals" % mod)
+    debugger.HandleCommand("command script add -o -f %s.cmd_catch goose-catch" % mod)
     debugger.HandleCommand("command script add -o -f %s.cmd_frame_format goose-frame-format" % mod)

@@ -110,8 +110,28 @@ lit: const u8[:] = "hello, goose"
 name: u8[..16] = ""
 ```
 
+`goose-catch` makes a Goose runtime error -- a failed bounds, overflow or
+tag check, an assert, an abort -- stop the program instead of ending it.
+Every one ends in the runtime's `gs_fail`; goose-catch breaks there,
+prints the error as the runtime will, and (through a stop hook) selects
+the Goose frame that failed, so `goose-locals`, `frame variable` and `bt`
+start there. `goose-catch off` removes it.
+
+```
+(lldb) goose-catch
+(lldb) run
+goose runtime error: index 3 out of bounds (length 3) (deep.goose:5)
+(lldb) goose-locals
+i: i64 = 3
+xs: i64[:] = [1, 2, 3]
+```
+
+`goose-globals` prints the program's globals from the map, as
+`goose-locals` prints locals.
+
 `goose-bt [N]` prints the frames under their Goose names (with a generic
-instance's type arguments, from the map's `bindings`):
+instance's type arguments, from the map's `bindings`, and the function a
+function-value parameter is bound to, from `fnvals`: `twice<F=inc>`):
 
 ```
 * #0: refs`bump at refs.goose:11
