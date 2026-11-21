@@ -1,0 +1,72 @@
+@@ bump_g_1 refs.goose:11
+-- info args
+r_g = 0x_ 6
+o_g = 0x_ Node { v: 2, next: Node { v: 3, next: null } }
+-- info locals
+found_g = 2
+-- goose-locals
+r = 6
+o = Node { v: 2, next: Node { v: 3, next: null } }
+found = 2
+-- goose-test-children o_g
+o_g: 2 children
+  v_g (int64_t) = 2
+  next_g (Node_g *) = 0x_ Node { v: 3, next: null }
+-- goose-test-children r_g
+r_g: 1 children
+  * (gs_i64) = 6
+-- goose-bt 3
+* #0: refs`bump_g_1 at refs.goose:11
+  #1: refs`main_g at refs.goose:23
+  #2: refs`main at refs.c:N
+-- bt 3
+#0  bump_g_1 (r_g=0x_ 6, o_g=0x_ Node { v: 2, next: Node { v: 3, next: null } }) at refs.goose:11
+#1  0x_ in main_g (gs_sp=0) at refs.goose:23
+#2  0x_ in main (argc=1, argv=0x_) at refs.c:N
+@@ bump_g_2 refs.goose:11
+-- info args
+r_g = 0x_ 7
+o_g = null
+-- info locals
+found_g = -1
+-- goose-locals
+r = 7
+o = null
+found = -1
+-- goose-test-children o_g
+o_g: 0 children
+-- goose-test-children r_g
+r_g: 1 children
+  * (gs_i64) = 7
+-- goose-bt 3
+* #0: refs`bump_g_2 at refs.goose:11
+  #1: refs`main_g at refs.goose:23
+  #2: refs`main at refs.c:N
+-- bt 3
+#0  bump_g_2 (r_g=0x_ 7, o_g=null) at refs.goose:11
+#1  0x_ in main_g (gs_sp=0) at refs.goose:23
+#2  0x_ in main (argc=1, argv=0x_) at refs.c:N
+@@ main_g refs.goose:24
+-- info args
+-- info locals
+n_g = 7
+c_g = Node { v: 3, next: null }
+b_g = Node { v: 2, next: Node { v: 3, next: null } }
+some_g = 0x_ Node { v: 2, next: Node { v: 3, next: null } }
+none_g = null
+pool_g = len=2, element type not in debug info
+k_g = 51
+-- goose-locals
+n = 7
+c = Node { v: 3, next: null }
+b = Node { v: 2, next: Node { v: 3, next: null } }
+some = Node { v: 2, next: Node { v: 3, next: null } }
+none = null
+pool = len=2, element type not in debug info
+k = 51
+-- goose-as pool_g Tree_g
+len=2
+  [0] = Tree { key: 1, left: 0 }
+  [1] = Tree { key: 2, left: 4294967284 }
+51 2
+exited with status = 0

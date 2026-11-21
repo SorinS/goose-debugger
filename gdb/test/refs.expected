@@ -1,0 +1,70 @@
+@@ bump_g_1 refs.goose:11
+-- info args
+r_g = 0x_ 6
+o_g = 0x_ Node { v: 2, next: Node { v: 3, next: null } }
+-- info locals
+found_g = 2
+-- goose-locals
+o: Node? = Node { v: 2, next: Node { v: 3, next: null } }
+r: i64& = 6
+found: i64 = 2
+-- goose-test-children o_g
+o_g: 2 children
+  v (int64_t) = 2
+  next (Node_g *) = Node { v: 3, next: null }
+-- goose-test-children r_g
+r_g: 0 children
+-- goose-bt 3
+* #0: refs`bump at refs.goose:11
+  #1: refs`main at refs.goose:23
+  #2: refs`main at refs.c:N
+-- bt 3
+#0  bump (r=0x_ 6, o=0x_ Node { v: 2, next: Node { v: 3, next: null } }) at refs.goose:11
+#1  0x_ in main () at refs.goose:23
+#2  0x_ in main (argc=1, argv=0x_) at refs.c:N
+@@ bump_g_2 refs.goose:11
+-- info args
+r_g = 0x_ 7
+o_g = null
+-- info locals
+found_g = -1
+-- goose-locals
+o: Node? = null
+r: i64& = 7
+found: i64 = -1
+-- goose-test-children o_g
+o_g: 0 children
+-- goose-test-children r_g
+r_g: 0 children
+-- goose-bt 3
+* #0: refs`bump at refs.goose:11
+  #1: refs`main at refs.goose:23
+  #2: refs`main at refs.c:N
+-- bt 3
+#0  bump (r=0x_ 7, o=null) at refs.goose:11
+#1  0x_ in main () at refs.goose:23
+#2  0x_ in main (argc=1, argv=0x_) at refs.c:N
+@@ main_g refs.goose:24
+-- info args
+-- info locals
+n_g = 7
+c_g = Node { v: 3, next: null }
+b_g = Node { v: 2, next: Node { v: 3, next: null } }
+some_g = 0x_ Node { v: 2, next: Node { v: 3, next: null } }
+none_g = null
+pool_g = [Tree { key: 1, left: null }, Tree { key: 2, left: Tree { key: 1, left: null } }]
+k_g = 51
+-- goose-locals
+n: i64 = 7
+c: Node = Node { v: 3, next: null }
+b: Node = Node { v: 2, next: Node { v: 3, next: null } }
+some: Node? = Node { v: 2, next: Node { v: 3, next: null } }
+none: Node? = null
+pool: Tree[>..] = [Tree { key: 1, left: null }, Tree { key: 2, left: Tree { key: 1, left: null } }]
+k: i64 = 51
+-- goose-as pool_g Tree_g
+len=2
+  [0] = Tree { key: 1, left: null }
+  [1] = Tree { key: 2, left: Tree { key: 1, left: null } }
+51 2
+exited with status = 0

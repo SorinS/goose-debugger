@@ -468,8 +468,9 @@ type. Clang does emit it into the object file's DWARF (compiling the kept
 `Shape_g_Circle_g_k` among the enumerators), but on macOS `dsymutil`, which
 keeps only DIEs something refers to, drops it: the program's `.dSYM` has
 none, `SBModule.GetTypes(eTypeClassEnumeration)` finds none, and
-`p Shape_g_Rect_g_k` is an undeclared identifier. (On Linux, with no
-dsymutil, the enumerators would probably stay; not checked.) From the
+`p Shape_g_Rect_g_k` is an undeclared identifier. On Linux they stay: gcc 9.4 and clang 17 (at `-gdwarf-4`) keep the
+anonymous enum, and gdb reads its `_k` enumerators (`gdb/goose_gdb.py`
+names tags from them with neither map nor `.c`). From the
 DWARF LLDB gets on macOS:
 
 - the union's member names give the names of the variants **with** a

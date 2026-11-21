@@ -1,0 +1,43 @@
+@@ main_g generics.goose:20
+-- info args
+-- info locals
+p_g = Pair<i64> { a: 1, b: 2 }
+q_g = Pair<f64> { a: 0.5, b: 1.5 }
+s_g = Opt<i64>.Some { v: 9 }
+o_g = Opt<i64>.Some { v: 9 }
+e_g = Opt<i64>.None
+arr_g = [4, 5, 6]
+v_g = View { name: "view", vals: [4, 5, 6] }
+-- goose-locals
+p = Pair<i64> { a: 1, b: 2 }
+q = Pair<f64> { a: 0.5, b: 1.5 }
+s = Opt<i64>.Some { v: 9 }
+o = Opt<i64>.Some { v: 9 }
+e = Opt<i64>.None
+arr = [4, 5, 6]
+v = View { name: "view", vals: [4, 5, 6] }
+-- goose-test-children o_g
+o_g: 2 children
+  tag (uint8_t) = 1
+  v_Some_g (Opt_g_i64_Some_p) = Opt<i64>.Some { v: 9 }
+-- goose-test-children e_g
+e_g: 1 children
+  tag (uint8_t) = 0
+-- goose-test-children v_g
+v_g: 2 children
+  name_g (sl_u8) = "view"
+  vals_g (sl_i64) = [4, 5, 6]
+@@ sum_g generics.goose:9
+-- info args
+-- info locals
+xs_g = [4, 5, 6]
+label_g = "view"
+t_g = 15
+x_g = 6
+-- goose-locals
+xs = [4, 5, 6]
+label = "view"
+t = 15
+x = 6
+Pair<i64> { 1, 2 } Pair<f64> { 0.5, 1.5 } Some { 9 } Opt.None 19
+exited with status = 0

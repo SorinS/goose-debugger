@@ -1,0 +1,48 @@
+@@ main_g layouts.goose:25
+-- info args
+-- info locals
+second_g = 0x_ PNode { v: 2, next: PNode { v: 1, next: null } }
+sized_g = 0x_ [3]
+short_g = 0x_ "hi"
+c_g = 0x_ Shape.Circle { r: 2.0 }
+fs_g = [Shape.Dot, Shape.Dot, Shape.Dot, Shape.Dot]
+r_g = 0x_ Rec { id: 5, tag: "ab" }
+count_g = 1
+cur_g = Cursor { line: 1, flag: true }
+gs_pb_pool_g = 0x_ <untyped bytes>
+-- goose-locals
+second: PNode& = PNode { v: 2, next: PNode { v: 1, next: null } }
+sized: i64[..] = [3]
+short: u8[varint] = "hi"
+c: Shape.. = Shape.Circle { r: 2.0 }
+fs: Shape[4] = [Shape.Dot, Shape.Dot, Shape.Dot, Shape.Dot]
+r: Rec = Rec { id: 5, tag: "ab" }
+count: i64 = 1
+cur: Cursor = Cursor { line: 1, flag: true }
+-- goose-globals
+pool: PNode[>..] = [PNode { v: 1, next: null }, PNode { v: 2, next: PNode { v: 1, next: null } }]
+log: u8[>..] = "x"
+-- print gs_globals_main
+$ = {pool_g = [PNode { v: 1, next: null }, PNode { v: 2, next: PNode { v: 1, next: null } }], gs_gstk_pool_g = {top = 0x_ <untyped bytes>}, log_g = "x", gs_gstk_log_g = {top = 0x_ <untyped bytes>}}
+-- goose-as gs_globals_main.pool_g PNode_g
+len=2
+  [0] = PNode { v: 1, next: null }
+  [1] = PNode { v: 2, next: PNode { v: 1, next: null } }
+-- print *(PNode_g(*)[2])gs_globals_main.pool_g.base
+$ = {PNode { v: 1, next: null }, PNode { v: 2, next: PNode { v: 1, next: null } }}
+-- x/9ub c_g
+0x_:	0	0	0	0	0	0	0	0
+0x_:	64
+-- goose-test-children cur_g
+cur_g: 2 children
+  line (uint8_t *) = 1
+  flag (uint8_t *) = true
+-- goose-test-children r_g
+r_g: 2 children
+  id (uint8_t *) = 5
+  tag (l4_u8) = "ab"
+-- goose-test-children c_g
+c_g: 1 children
+  r (double) = 2.0
+2x[3]hiCircle { 2.0 }[Shape.Dot, Shape.Dot, Shape.Dot, Shape.Dot]51true
+exited with status = 0

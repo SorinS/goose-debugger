@@ -1,0 +1,55 @@
+@@ fill_g stacks.goose:7
+-- info args
+n_g = 4
+-- info locals
+out_g = [0, 1, 4]
+last_g = 0
+i_g = 3
+-- goose-locals
+n: i64 = 4
+out: i64[>..]& = [0, 1, 4]
+last: i64 = 0
+i: i64 = 3
+-- print out_g.hdr->len
+$ = 3
+-- goose-as out_g i64
+len=3
+  [0] = 0
+  [1] = 1
+  [2] = 4
+-- print *(gs_i64(*)[3])out_g.hdr->base
+$ = {0, 1, 4}
+@@ fill_g stacks.goose:10
+-- info args
+n_g = 4
+-- info locals
+out_g = [0, 1, 4, 9]
+last_g = 4
+i_g = 4
+-- goose-locals
+n: i64 = 4
+out: i64[>..]& = [0, 1, 4, 9]
+last: i64 = 4
+i: i64 = 4
+@@ main_g stacks.goose:23
+-- info args
+-- info locals
+squares_g = [0, 1, 4, 9]
+frozen_g = 0x_ [7, 8, 9]
+word_g = 0x_ "frozen"
+rec_g = 0x_ Rec { id: 300, name: "rec" }
+words_g = ["one", "two"]
+msg_g = "n=4"
+-- goose-locals
+squares: i64[>..] = [0, 1, 4, 9]
+frozen: i64[] = [7, 8, 9]
+word: u8[] = "frozen"
+rec: Rec = Rec { id: 300, name: "rec" }
+words: u8[][>..] = ["one", "two"]
+msg: u8[>..] = "n=4"
+-- goose-as msg_g u8
+len=3 "n=4"
+-- goose-as word_g u8[]
+len=6 "frozen"
+[7, 8, 9] frozen rec ["one", "two"] n=4
+exited with status = 0

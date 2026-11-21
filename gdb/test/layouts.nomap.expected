@@ -1,0 +1,45 @@
+@@ main_g layouts.goose:25
+-- info args
+-- info locals
+second_g = 0x_ PNode { v: 2, next: 1 }
+sized_g = 0x_ <untyped bytes>
+short_g = 0x_ <untyped bytes>
+c_g = 0x_ <untyped bytes>
+fs_g = [Shape.Dot, Shape.Dot, Shape.Dot, Shape.Dot]
+r_g = 0x_ <untyped bytes>
+count_g = 1
+cur_g = Cursor { line: 1, flag: 1 }
+gs_pb_pool_g = 0x_ <untyped bytes>
+-- goose-locals
+second = PNode { v: 2, next: 1 }
+sized = 0x_
+short = 0x_
+c = 0x_
+fs = [Shape.Dot, Shape.Dot, Shape.Dot, Shape.Dot]
+r = 0x_
+count = 1
+cur = Cursor { line: 1, flag: 1 }
+gs_pb_pool = 0x_
+-- goose-globals
+no debug map
+-- print gs_globals_main
+$ = {pool_g = len=2, element type not in debug info, gs_gstk_pool_g = {top = 0x_ <untyped bytes>}, log_g = len=1, element type not in debug info, gs_gstk_log_g = {top = 0x_ <untyped bytes>}}
+-- goose-as gs_globals_main.pool_g PNode_g
+len=2
+  [0] = PNode { v: 1, next: 0 }
+  [1] = PNode { v: 2, next: 1 }
+-- print *(PNode_g(*)[2])gs_globals_main.pool_g.base
+$ = {PNode { v: 1, next: 0 }, PNode { v: 2, next: 1 }}
+-- x/9ub c_g
+0x_:	0	0	0	0	0	0	0	0
+0x_:	64
+-- goose-test-children cur_g
+cur_g: 2 children
+  line_g (gs_i64 *) = 0x_
+  flag_g (uint8_t) = 1
+-- goose-test-children r_g
+r_g: 0 children
+-- goose-test-children c_g
+c_g: 0 children
+2x[3]hiCircle { 2.0 }[Shape.Dot, Shape.Dot, Shape.Dot, Shape.Dot]51true
+exited with status = 0

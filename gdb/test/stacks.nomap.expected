@@ -1,0 +1,55 @@
+@@ fill_g stacks.goose:7
+-- info args
+n_g = 4
+-- info locals
+out_g = len=3, element type not in debug info
+last_g = 0
+i_g = 3
+-- goose-locals
+n = 4
+out = len=3, element type not in debug info
+last = 0
+i = 3
+-- print out_g.hdr->len
+$ = 3
+-- goose-as out_g i64
+len=3
+  [0] = 0
+  [1] = 1
+  [2] = 4
+-- print *(gs_i64(*)[3])out_g.hdr->base
+$ = {0, 1, 4}
+@@ fill_g stacks.goose:10
+-- info args
+n_g = 4
+-- info locals
+out_g = len=4, element type not in debug info
+last_g = 4
+i_g = 4
+-- goose-locals
+n = 4
+out = len=4, element type not in debug info
+last = 4
+i = 4
+@@ main_g stacks.goose:23
+-- info args
+-- info locals
+squares_g = len=4, element type not in debug info
+frozen_g = 0x_ <untyped bytes>
+word_g = 0x_ <untyped bytes>
+rec_g = 0x_ <untyped bytes>
+words_g = len=2, element type not in debug info
+msg_g = len=3, element type not in debug info
+-- goose-locals
+squares = len=4, element type not in debug info
+frozen = 0x_
+word = 0x_
+rec = 0x_
+words = len=2, element type not in debug info
+msg = len=3, element type not in debug info
+-- goose-as msg_g u8
+len=3 "n=4"
+-- goose-as word_g u8[]
+len=6 "frozen"
+[7, 8, 9] frozen rec ["one", "two"] n=4
+exited with status = 0

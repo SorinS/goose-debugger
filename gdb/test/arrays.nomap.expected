@@ -1,0 +1,58 @@
+@@ main_g arrays.goose:14
+-- info args
+-- info locals
+fixed_g = [1, 2, 3, 4]
+grow_g = len=5, element type not in debug info
+view_g = [20, 30, 40]
+bytes_g = "goose\x00\x01\x02"
+lit_g = "hello, goose"
+name_g = "ada"
+frozen_g = 0x_ <untyped bytes>
+n_g = 26
+-- goose-locals
+fixed = [1, 2, 3, 4]
+grow = len=5, element type not in debug info
+view = [20, 30, 40]
+bytes = "goose\x00\x01\x02"
+lit = "hello, goose"
+name = "ada"
+frozen = 0x_
+n = 26
+-- print view_g[1]
+error: Structure has no component named operator[].
+-- print fixed_g[2]
+error: Structure has no component named operator[].
+-- print name_g[0]
+error: Structure has no component named operator[].
+-- print view_g.len
+$ = 3
+-- goose-test-children view_g
+view_g: 3 children
+  [0] (gs_i64) = 20
+  [1] (gs_i64) = 30
+  [2] (gs_i64) = 40
+-- goose-test-children name_g
+name_g: 3 children
+  [0] (uint8_t) = 97
+  [1] (uint8_t) = 100
+  [2] (uint8_t) = 97
+-- goose-test-children grow_g
+grow_g: 2 children
+  base (uint8_t *) = 0x_ <untyped bytes>
+  len (int64_t) = 5
+-- goose-as grow_g i64
+len=5
+  [0] = 10
+  [1] = 20
+  [2] = 30
+  [3] = 40
+  [4] = 50
+-- goose-as frozen_g i64[]
+len=3
+  [0] = 7
+  [1] = 8
+  [2] = 9
+-- goose-as fixed_g i32
+error: fixed_g is not a resizable; for a T[] write the type as i32[]
+[1, 2, 3, 4] [20, 30, 40] hello, goose ada 26
+exited with status = 0

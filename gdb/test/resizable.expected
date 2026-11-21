@@ -1,0 +1,25 @@
+@@ main_g resizable.goose:12
+-- info args
+-- info locals
+nums_g = [0, 3, 6, 9]
+i_g = 4
+text_g = "grow 42"
+s_g = Stack { name: "main", depth: 2, items: [7, 9] }
+-- goose-locals
+nums: u32[>..] = [0, 3, 6, 9]
+i: i64 = 4
+text: u8[>..] = "grow 42"
+s: Stack = Stack { name: "main", depth: 2, items: [7, 9] }
+-- goose-test-children s_g
+s_g: 3 children
+  name (l8_u8) = "main"
+  depth (int32_t) = 2
+  items (gs_rhdr) = [7, 9]
+-- print s_g.items_g
+$ = [7, 9]
+-- goose-test-children s_g.items_g
+s_g.items_g: 2 children
+  [0] (int64_t) = 7
+  [1] (int64_t) = 9
+[0, 3, 6, 9] grow 42 main [7, 9]
+exited with status = 0

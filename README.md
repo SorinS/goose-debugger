@@ -34,6 +34,9 @@ patches for its author, against the goose.git commit each one names.
 - `patches/upstream/`: the same final change as three patches for the
   Goose author, each building and passing on its own: `-g` itself, the
   debug map, and `goose run -g`'s backtraces.
+- `gdb/`: `goose_gdb.py`, gdb pretty-printers, `goose-locals`, `goose-bt`,
+  `goose-globals`, `goose-as` and a frame filter for Goose names in `bt`,
+  and its tests.
 - `lldb/`: `goose_lldb.py`, LLDB summaries and synthetic children for Goose
   values, and its tests.
 - `tests/`: checks of the patched compiler: `line_directives.sh` through
@@ -69,7 +72,8 @@ lldb -o 'b prog.goose:12' -o run ./prog
   gdb older than 10 cannot read clang's DWARF 5: use gcc, `-gdwarf-4`, or
   LLDB. The abort backtraces of 0004 need the compiler's
   `jit_runtime.c` built with frame pointers (0004 does that); crash
-  backtraces work without.
+  backtraces work without. With patches 0005-0007 the gdb printers pass
+  their tests (16/16 with gcc; clang needs `-gdwarf-4` for gdb before 10).
 - **Windows** (Server 2022, MSVC 19.44; cdb 10.0.26100, LLDB 23.1 on PDB):
   patches 0001-0004 work. `goose build --debug` writes a PDB beside the
   exe; cdb and LLDB bind breakpoints to Goose lines (one location per
