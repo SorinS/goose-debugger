@@ -31,13 +31,20 @@ patches for its author, against the goose.git commit each one names.
     blocks get their own lines; no resizable's count is cached, so a
     debugger sees the array as it is while a loop grows it; the map gains
     globals and what each function-value parameter is bound to.
+  - `0008`: the VS Code extension (goose.git `vscode/`) debugs through
+    `dap/goose-dap`: a `goose` launch without `noDebug` builds with
+    `goose build -g` and starts goose-dap. Adds the `goose.debugAdapterPath`
+    and `goose.lldbDapPath` settings, a **Goose: Debug** command, and
+    breakpoints in `.goose` files. Its `goose-language.vsix` still has to be
+    rebuilt (`python vscode/build_vsix.py`, which needs the network).
 - `patches/upstream/`: the same final change as three patches for the
   Goose author, each building and passing on its own: `-g` itself, the
   debug map, and `goose run -g`'s backtraces.
 - `dap/`: `goose-dap`, a Debug Adapter Protocol proxy in front of LLDB's
   `lldb-dap` that makes an editor's debugger Goose-level: frame names,
   only the Goose locals in scope, Goose watch expressions and function
-  breakpoints, and a "Goose runtime errors" exception filter.
+  breakpoints, and a "Goose runtime errors" exception filter. The VS Code
+  extension uses it as of patch 0008.
 - `gdb/`: `goose_gdb.py`, gdb pretty-printers, `goose-locals`, `goose-bt`,
   `goose-globals`, `goose-as` and a frame filter for Goose names in `bt`,
   and its tests.
