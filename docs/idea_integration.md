@@ -150,7 +150,7 @@ CLion-internal.
 
 This is how the old intellij-rust plugin worked, but it ties Goose debugging
 to CLion and RustRover and to internal API. It is not recommended. As a
-stopgap, a CLion user can already debug a `goose build --debug` executable
+stopgap, a CLion user can already debug a `goose build -g` executable
 with a Custom Build Application configuration. Stepping and stops should
 land on `.goose` lines. Judging from `canPutAt`'s bytecode (this was not
 tried), breakpoints cannot be set in `.goose` files.
@@ -302,7 +302,7 @@ New classes, in a `debug` package:
   - `initCommands: ["command script import <goose_lldb.py>"]` (phase 1 only;
     `goose dap` would load it itself);
   - `stopOnEntry: false`.
-- **Building.** Debug always runs `goose build --debug -o <out> <file>` first.
+- **Building.** Debug always runs `goose build -g -o <out> <file>` first.
   `<out>` is a per-configuration path under the IDE's system directory or
   `build/`. The JIT cannot be debugged: `goose run` is TinyCC in memory, and
   LLDB cannot debug it as it can a built executable. There are two places to
@@ -423,7 +423,7 @@ passes through unchanged.
   the .NET `vsdbg`. An IntelliJ plugin cannot ship or drive it.
 - **lldb-dap with PDB.** LLVM made its native PDB reader the default on
   Windows in October 2025 (llvm-project PR #165363, so LLVM 22 and later),
-  and plans to remove the DIA reader. `goose build --debug` with MSVC gives
+  and plans to remove the DIA reader. `goose build -g` with MSVC gives
   `/Zi` PDBs, and with clang it can give PDB or DWARF. Whether `#line`
   locations, locals and struct types come through LLDB's PDB reader well
   enough has to be tested. The `.expected` files in `lldb/test/` are the

@@ -16,7 +16,7 @@ recognizes them by name and shape and shows them as Goose values:
 
 Load it with `command script import /path/to/goose_lldb.py`.
 
-A compiler with the debug map (goose --debug writes <stem>.debug.json
+A compiler with the debug map (goose -g writes <stem>.debug.json
 beside the generated <stem>.c) says what the C cannot: each function's and
 local's Goose name and type, the line range a local is in scope over, and
 the fields and variants of the types they name. Where the map is found

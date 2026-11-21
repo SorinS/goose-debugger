@@ -1,0 +1,375 @@
+From f62917c1dad7824d593f345abee3bd8075582a8c Mon Sep 17 00:00:00 2001
+From: SorinS <ssuciu@gmail.com>
+Date: Sat, 21 Nov 2026 22:39:17 +0000
+Subject: [PATCH] -g, --debug-info: the debugger build apart from --debug
+
+--debug keeps the meaning it has upstream: the overflow, range and tag
+checks, and C debug information. What patches 0001-0005 added to it --
+#line directives, no inlining unless an -O asks for it, one breakpoint
+location to a line, the debug map, and goose run's backtraces -- now
+comes with -g (or --debug-info), which also turns on --debug's checks.
+A program run under --debug for its checks alone is built as before:
+its C is the same as without these patches.
+
+-g is what C compilers, rustc, swiftc and GHC call emitting debug
+information, and the partner of -O, which goose already takes.
+
+Test: --debug's C is identical to upstream's (but for the runtime's
+version); -g and --debug-info give #line, the map and a frame for every
+function; -g -O2 inlines and keeps #line and the map; the help and the
+completion scripts name -g and --debug-info.
+---
+ CMakeLists.txt               |  2 +-
+ cmake/libtcc.cmake           |  2 +-
+ docs/command_line.md         |  9 +++++---
+ docs/design/jit_backend.md   |  2 +-
+ src/codegen.h                |  2 +-
+ src/codegen_debugmap.h       |  2 +-
+ src/codegen_emit.h           |  2 +-
+ src/jit.h                    |  4 ++--
+ src/jit_runtime.c            |  2 +-
+ src/jit_runtime.h            |  2 +-
+ src/main.cpp                 | 40 ++++++++++++++++++++++--------------
+ src/runtime/runtime_impl.h   |  2 +-
+ src/runtime_inline.h         |  2 +-
+ third_party/tinycc/README.md |  2 +-
+ 14 files changed, 44 insertions(+), 31 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 0fce1bb2..fda0077a 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -193,7 +193,7 @@ foreach(header runtime.h runtime_ext.h)
+ endforeach()
+ file(CONFIGURE OUTPUT "${CMAKE_BINARY_DIR}/jit_symbols.inc" CONTENT "${jit_symbols}" @ONLY)
+ target_sources(goose PRIVATE src/jit_runtime.c src/jit_runtime.h)
+-# goose run --debug walks an abort's stack from inside this file's runtime
++# goose run -g walks an abort's stack from inside this file's runtime
+ # out to the program's frames by frame pointer (gs_jit_trace).
+ if(NOT MSVC)
+     set_source_files_properties(src/jit_runtime.c PROPERTIES
+diff --git a/cmake/libtcc.cmake b/cmake/libtcc.cmake
+index f9088db3..56c52a8c 100644
+--- a/cmake/libtcc.cmake
++++ b/cmake/libtcc.cmake
+@@ -39,7 +39,7 @@ endif()
+ # directory instead of from a string baked in by its own build tools, which are
+ # not run here. Bounds checking is off: it pulls in support objects that need
+ # the full Windows SDK headers, which TinyCC does not ship. Backtraces are on
+-# outside Windows for goose run --debug (src/jit.h), which uses only the line
++# outside Windows for goose run -g (src/jit.h), which uses only the line
+ # table and frame walker inside libtcc itself and links none of their support
+ # objects; Windows would add bt-log.o to every in-memory run (tccpe.c).
+ 
+diff --git a/docs/command_line.md b/docs/command_line.md
+index 234e623d..9ef5b304 100644
+--- a/docs/command_line.md
++++ b/docs/command_line.md
+@@ -125,6 +125,7 @@ It takes no `-o`: the flag form `goose -o out.c` writes C instead
+ goose build hello.goose && ./hello
+ goose build -o out/hello hello.goose     # the executable elsewhere
+ goose build --debug hello.goose          # checked, with debug information
++goose build -g hello.goose               # checked, for stepping it in a debugger
+ goose build --dry-run hello.goose        # print the commands and run none
+ goose build --shared hello.goose         # libhello.so/.dylib, or hello.dll
+ ```
+@@ -160,7 +161,8 @@ beyond those in [§5](#5-options-for-run-build-and-check):
+ | Option | What it does |
+ |---|---|
+ | `-o exe` | Where the executable goes. Its directory is made if needed. |
+-| `--debug` | Turn on the overflow, range and tag checks (`GS_DEBUG=1`), and build the C without optimization and with debug information (`/Od /Zi`, or `-O0 -g`), for a debugger. The C carries `#line` directives, so a debugger shows, steps and stops on the Goose source, and a `<stem>.debug.json` beside the C gives a debugger's Goose support the Goose names, types and scopes of functions and locals, and the fields and variants of their types; and unless an `-O` says otherwise, Goose inlines nothing (`-O0`), so every function keeps a frame of its own. |
++| `--debug` | Turn on the overflow, range and tag checks (`GS_DEBUG=1`), and build the C without optimization and with debug information (`/Od /Zi`, or `-O0 -g`), for a debugger. |
++| `-g`, `--debug-info` | `--debug`, and the C built for stepping the Goose source in a debugger: `#line` directives, so a debugger shows, steps and stops on the Goose source, one breakpoint location to a line; a `<stem>.debug.json` beside the C, which gives a debugger's Goose support the Goose names, types and scopes of functions and locals and the fields and variants of their types; and, unless an `-O` says otherwise, no inlining (`-O0`), so every function keeps a frame of its own. |
+ | `--cc name\|path` | The C compiler, as above. |
+ | `--standalone` | Compile the runtime into the program, rather than linking the runtime object built once per C compiler. |
+ | `--shared` | Build a self-contained shared library (`lib<stem>.so`, `lib<stem>.dylib` or `<stem>.dll`) instead of an executable. The library has no C `main`; `goose_init`, `goose_exit` and the program's `export fn` symbols are its host API ([reference §24](reference.md#24-calling-c-and-being-called-from-c)). This implies `--standalone`; `--header out.h` ([§8](#8-writing-the-c-yourself)) writes the host's header too. |
+@@ -195,8 +197,9 @@ These options have the same meaning for `goose run`, `goose build`,
+ 
+ | Option | What it does |
+ |---|---|
+-| `-O0`, `-O1`, `-O2` | How much the Goose compiler inlines: nothing, a little, or the most (the default; `-O0` with `--debug`). Constant folding and propagation run at every level, and a build's C compiler optimizes at every level. |
+-| `--debug` | Turn on the overflow checks, the range checks of `as` casts and the tag checks (`GS_DEBUG=1`). Each failure names its source line, and an overflow or a cast names the values involved. A build also gets debug information ([§3](#3-building-an-executable)). Under `goose run`, except on Windows, a failure or a crash also prints the Goose functions that led to it, innermost first, each with its line; a crash then exits with 255. |
++| `-O0`, `-O1`, `-O2` | How much the Goose compiler inlines: nothing, a little, or the most (the default; `-O0` with `-g`). Constant folding and propagation run at every level, and a build's C compiler optimizes at every level. |
++| `--debug` | Turn on the overflow checks, the range checks of `as` casts and the tag checks (`GS_DEBUG=1`). Each failure names its source line, and an overflow or a cast names the values involved. A build also gets debug information ([§3](#3-building-an-executable)). |
++| `-g`, `--debug-info` | `--debug`, and a program built for a debugger ([§3](#3-building-an-executable)). Under `goose run`, except on Windows, a failure or a crash also prints the Goose functions that led to it, innermost first, each with its line; a crash then exits with 255. |
+ | `-D NAME[=VALUE]` | Define a C macro in the generated program, as `-DNAME[=VALUE]` does too. The define is written into the C itself, so a run and a build see the same source. The value is 1 when none is given. |
+ | `--stack-reserve size` | The address space reserved for each data stack, from 64K up to 256T with a `K`, `M`, `G` or `T` suffix. The default is 2G. The address space is committed as it is used, so a large reservation costs nothing until it is used. |
+ | `--stacks` | Report how many data stacks the program and each of its workers use, what that adds up to, and the cap it puts on `hardware_threads()`. |
+diff --git a/docs/design/jit_backend.md b/docs/design/jit_backend.md
+index a78e64cb..a6cf90e8 100644
+--- a/docs/design/jit_backend.md
++++ b/docs/design/jit_backend.md
+@@ -158,7 +158,7 @@ coverage.
+ `config.h` turns off TinyCC's bounds checking, because the support objects
+ behind it need the full Windows SDK headers, which TinyCC does not ship. A
+ crash inside generated code therefore takes the compiler process down with
+-no symbolic stack, except under `goose run --debug` on the ELF and Mach-O
++no symbolic stack, except under `goose run -g` on the ELF and Mach-O
+ targets. There `config.h` turns TinyCC's backtraces on, and `src/jit.h` asks
+ for a line table (`-bt64 -g1dwarf`), which the C's `#line` directives make a
+ table of Goose lines. A crash reaches TinyCC's signal handler (behind the
+diff --git a/src/codegen.h b/src/codegen.h
+index 8fc038e8..8e76c2d4 100644
+--- a/src/codegen.h
++++ b/src/codegen.h
+@@ -186,7 +186,7 @@ struct CodeGen {
+     // and the checks' cost can be priced (--unsafe-no-rf-check).
+     bool norfcheck = false;
+ 
+-    // --debug: every line of a function's C is preceded by a #line naming
++    // -g: every line of a function's C is preceded by a #line naming
+     // the Goose statement it came from, so a debugger shows and steps the
+     // Goose source. One directive per C line, not per statement: after
+     // `#line N` the next C lines would count on as N+1, N+2. A function
+diff --git a/src/codegen_debugmap.h b/src/codegen_debugmap.h
+index edf21799..127c9e28 100644
+--- a/src/codegen_debugmap.h
++++ b/src/codegen_debugmap.h
+@@ -1,4 +1,4 @@
+-// Goose compiler — the debug map that --debug writes beside the C, as
++// Goose compiler — the debug map that -g writes beside the C, as
+ // <stem>.debug.json (definitions of CodeGen members, codegen.h). A
+ // debugger reads the C's own debug information for addresses, lines and
+ // C types; this holds what that information cannot: the Goose name of each
+diff --git a/src/codegen_emit.h b/src/codegen_emit.h
+index c90ee17a..17cae1b7 100644
+--- a/src/codegen_emit.h
++++ b/src/codegen_emit.h
+@@ -535,7 +535,7 @@ inline string CodeGen::HoistAggregateDecls(string &b) {
+         string type(line.substr(ts, i - ts));
+         bool hoist = false;
+         string name, init;
+-        // Under --debug scalars and pointers move too: a C block that
++        // Under -g scalars and pointers move too: a C block that
+         // declares a variable is a lexical block in the debug information,
+         // and a debugger puts a breakpoint location in each block a line's
+         // code passes through, so one Goose line would stop several times.
+diff --git a/src/jit.h b/src/jit.h
+index 8f453762..7c7b972a 100644
+--- a/src/jit.h
++++ b/src/jit.h
+@@ -67,7 +67,7 @@ inline string JitGooseName(string_view cname) {
+     return string(cname);
+ }
+ 
+-// goose run --debug's backtrace: TinyCC calls this with each frame from where
++// goose run -g's backtrace: TinyCC calls this with each frame from where
+ // the program crashed (its own signal handler, tccrun.c) or aborted
+ // (gs_jit_trace) outwards, the innermost with `msg`, and stops when it
+ // returns 0. It prints the frames with a .goose line, and the innermost one
+@@ -172,7 +172,7 @@ inline int RunJit(TCCState *s, const string &progname, const vector<string> &pro
+     argv.push_back(name.data());
+     for (auto &a : args) argv.push_back(a.data());
+     argv.push_back(nullptr);
+-    // Defined only under --debug (CompileJit), for an abort's backtrace.
++    // Defined only under -g (CompileJit), for an abort's backtrace.
+     auto walk = tcc_get_symbol(s, "_tcc_backtrace");
+     auto code = goose_jit_run(entry, cleanup, (int)argv.size() - 1, argv.data(),
+                               resource_dir.c_str(), walk);
+diff --git a/src/jit_runtime.c b/src/jit_runtime.c
+index 8fcf2b26..889569d2 100644
+--- a/src/jit_runtime.c
++++ b/src/jit_runtime.c
+@@ -27,7 +27,7 @@ static void gs_jit_exit(int code) {
+     longjmp(gs_jit_jump, 1);
+ }
+ 
+-/* goose run --debug: TinyCC's frame walker (tccrun.c's _tcc_backtrace),
++/* goose run -g: TinyCC's frame walker (tccrun.c's _tcc_backtrace),
+    which hands each frame from a given one outwards to the callback the
+    compiler installed (src/jit.h); NULL otherwise. The frame is lib/bt-log.c's
+    rt_frame. The frames of this file have no line information and are
+diff --git a/src/jit_runtime.h b/src/jit_runtime.h
+index 719b0919..20e8ec91 100644
+--- a/src/jit_runtime.h
++++ b/src/jit_runtime.h
+@@ -10,7 +10,7 @@ typedef struct {
+ } GooseJitSymbol;
+ 
+ const GooseJitSymbol *goose_jit_symbols(void);
+-/* `walk` is TinyCC's _tcc_backtrace under goose run --debug, which an
++/* `walk` is TinyCC's _tcc_backtrace under goose run -g, which an
+    abort then prints the Goose frames with; NULL otherwise. */
+ int goose_jit_run(int (*entry)(int, char **), void (*cleanup)(void),
+                   int argc, char **argv, const char *resource_dir, void *walk);
+diff --git a/src/main.cpp b/src/main.cpp
+index e9848cbd..51c598ad 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -720,6 +720,9 @@ R"(  --stats               Print what the compile did: the declarations parsed,
+ constexpr const char *DEBUGOPTION =
+ R"(  --debug               Overflow, range and tag checks that name the source
+                         line they fail on.
++  -g, --debug-info      --debug, and the C built for a debugger: #line
++                        directives, a debug map, -O0 unless an -O is given,
++                        and under goose run the Goose frames of a failure.
+ )";
+ 
+ // The help on a command or topic, `goose help` or `goose --help`'s for ""
+@@ -744,9 +747,11 @@ Commands:
+   help       Print this (or --help, -h); with a command, that command's help.
+ 
+ Common options:
+-  -O0, -O1, -O2   Inlining level (default -O2; -O0 with --debug).
++  -O0, -O1, -O2   Inlining level (default -O2; -O0 with -g).
+   --debug         Overflow, range and tag checks that name the source line
+                   they fail on.
++  -g, --debug-info
++                  --debug, and the program built for a debugger.
+   --stats         Print what the compile did (declarations, bounds checks
+                   removed, files written).
+   --color when    Color errors and warnings: auto (on a terminal, unless
+@@ -774,7 +779,7 @@ its exit code. What follows -- is the program's arguments. A program that
+ starts threads needs goose build.
+ 
+ Options:
+-  -O0, -O1, -O2         Inlining level (default -O2; -O0 with --debug).
++  -O0, -O1, -O2         Inlining level (default -O2; -O0 with -g).
+ )", DEBUGOPTION, COMPILEOPTIONS,
+ R"(  --cc name|path        The C compiler for packages' native parts: msvc,
+                         clang-cl, clang, gcc, cc or a path (or GOOSE_CC).
+@@ -791,10 +796,13 @@ go under GOOSE_HOME.
+ 
+ Options:
+   -o exe                Where the executable goes.
+-  -O0, -O1, -O2         Inlining level (default -O2; -O0 with --debug). The C
++  -O0, -O1, -O2         Inlining level (default -O2; -O0 with -g). The C
+                         compiler optimizes at every level, unless --debug.
+   --debug               Overflow, range and tag checks that name the source
+-                        line they fail on, and the C built for a debugger.
++                        line they fail on, and C debug information.
++  -g, --debug-info      --debug, and the C built for stepping the Goose source
++                        in a debugger: #line directives, no inlining unless an
++                        -O is given, and a debug map beside the C.
+ )", COMPILEOPTIONS,
+ R"(  --cc name|path        The C compiler: msvc, clang-cl, clang, gcc, cc or a
+                         path (or GOOSE_CC; by default the first one found).
+@@ -922,7 +930,7 @@ Options:
+   --<package>-link msvc|cc
+                         Print the response file that links the native part of
+                         a package compiled into goose (--gfx-link cc).
+-  -O0, -O1, -O2         Inlining level (default -O2; -O0 with --debug).
++  -O0, -O1, -O2         Inlining level (default -O2; -O0 with -g).
+ )", DEBUGOPTION, COMPILEOPTIONS);
+     if (topic == "internals") return cat(
+ R"(usage: goose [options] file.goose
+@@ -1403,11 +1411,12 @@ int Main(int argc, char **argv) {
+     auto stats = false;
+     auto forcejit = false, standalone = false, shared = false;
+     auto json = false, refresh = false, debug = false, verbose = false, dryrun = false;
++    auto debuginfo = false;   // -g: --debug, and the C built for stepping the Goose source.
+     auto jsondiag = false;
+     string ccrequest;
+     // The inlining at its highest. The C compiler optimizes whatever the
+     // level, unless --debug (Builder::CFlags).
+-    // --debug keeps every function as a frame of its own: no inlining,
++    // -g keeps every function as a frame of its own: no inlining,
+     // unless an -O asks for it.
+     auto optlevel = -1;
+     vector<string> cdefines, progargs, includenames, files;
+@@ -1504,9 +1513,10 @@ int Main(int argc, char **argv) {
+         else if (arg == "--cc" && i + 1 < argc) ccrequest = argv[++i];
+         else if (arg == "--json") json = true;
+         else if (arg == "--refresh") refresh = true;
+-        else if (arg == "--debug") {
++        else if (arg == "--debug" || arg == "-g" || arg == "--debug-info") {
++            if (arg != "--debug") debuginfo = true;
++            if (!debug) cdefines.push_back("GS_DEBUG=1");
+             debug = true;
+-            cdefines.push_back("GS_DEBUG=1");
+         }
+         else if (arg == "-v") verbose = true;
+         else if (arg == "--stats") stats = true;
+@@ -1690,7 +1700,7 @@ int Main(int argc, char **argv) {
+         TypeCheckProgram(ast, library, nocgen);
+         // The checker reported the errors it went on past, root by root.
+         if (!ast.errors.empty()) return 1;
+-        if (optlevel < 0) optlevel = debug ? 0 : 2;
++        if (optlevel < 0) optlevel = debuginfo ? 0 : 2;
+         Optimizer opt(ast, optlevel);
+         if (specs) {
+             string s;
+@@ -1757,7 +1767,7 @@ int Main(int argc, char **argv) {
+             if (string_view(rf.name) == "runtime_ext.h") runtime_ext_text = rf.text;
+         auto stackcfg = StackConfigOf(cdefines);
+         CodeGen cg(ast, runtime_ext_text, includes, norfcheck, library, shared,
+-                   stackcfg.maxstacks, debug);
++                   stackcfg.maxstacks, debuginfo);
+         if (stacks) cg.StackReport(msgs, stackcfg);
+         // The packages whose native parts the program needs, which a JIT
+         // run takes functions from and a build links: its own, when it has
+@@ -1801,9 +1811,9 @@ int Main(int argc, char **argv) {
+             if (embedded)
+                 Append(out, "\nvoid gs_jit_cleanup(void) { free(gs_stks); gs_stks = NULL; "
+                             "gs_nstks = 0; }\n");
+-            // --debug's #line directives hand the C back to the C file
++            // -g's #line directives hand the C back to the C file
+             // after each function, by the name it is compiled under.
+-            if (debug) {
++            if (debuginfo) {
+                 std::error_code ec;
+                 auto cfile = outfile.empty() ? cat(PathStem(filename), ".c")
+                     : filesystem::absolute(filesystem::path(outfile), ec).lexically_normal()
+@@ -1816,9 +1826,9 @@ int Main(int argc, char **argv) {
+             auto out = assemble(!standalone);
+             if (!WriteFileMakingDirs(outfile, out))
+                 throw CompileError { cat("cannot write output file: ", outfile) };
+-            // --debug's map, beside the C a debugger finds through its
++            // -g's map, beside the C a debugger finds through its
+             // debug information (codegen_debugmap.h).
+-            if (debug) {
++            if (debuginfo) {
+                 auto mapfile = outfile.size() > 2 && outfile.compare(outfile.size() - 2, 2, ".c") == 0
+                                    ? outfile.substr(0, outfile.size() - 2) : outfile;
+                 mapfile += ".debug.json";
+@@ -1946,7 +1956,7 @@ int Main(int argc, char **argv) {
+             // thread has only `ulimit -s`.
+             TCCState *jit = nullptr;
+             RunOnCompilerStack([&]() -> int {
+-                jit = CompileJit(program, JitLibPath(DirOf(exe)), symbols, debug);
++                jit = CompileJit(program, JitLibPath(DirOf(exe)), symbols, debuginfo);
+                 return 0;
+             });
+             // The program shares this process, so its exit code becomes ours
+diff --git a/src/runtime/runtime_impl.h b/src/runtime/runtime_impl.h
+index 0db065ad..99e397ec 100644
+--- a/src/runtime/runtime_impl.h
++++ b/src/runtime/runtime_impl.h
+@@ -67,7 +67,7 @@ static GS_TLS gs_contained *gs_contain;
+    bytes at `msg` and the location after it. A contained worker's keeps the
+    message, without the "goose runtime error: " every printed one starts
+    with, and ends that worker; anything else's prints it and ends the
+-   process, under goose run --debug with the Goose frames that led to it
++   process, under goose run -g with the Goose frames that led to it
+    after the message (gs_jit_trace, src/jit_runtime.c). A NULL file is a
+    check the runtime makes on its own, which has no Goose location to
+    print. */
+diff --git a/src/runtime_inline.h b/src/runtime_inline.h
+index 0fd62267..021bffda 100644
+--- a/src/runtime_inline.h
++++ b/src/runtime_inline.h
+@@ -1441,7 +1441,7 @@ R"GSRT(/* The end of a failed check or abort(msg) (§9.3), whose message is `len
+    bytes at `msg` and the location after it. A contained worker's keeps the
+    message, without the "goose runtime error: " every printed one starts
+    with, and ends that worker; anything else's prints it and ends the
+-   process, under goose run --debug with the Goose frames that led to it
++   process, under goose run -g with the Goose frames that led to it
+    after the message (gs_jit_trace, src/jit_runtime.c). A NULL file is a
+    check the runtime makes on its own, which has no Goose location to
+    print. */
+diff --git a/third_party/tinycc/README.md b/third_party/tinycc/README.md
+index e0e65cc5..a336cbde 100644
+--- a/third_party/tinycc/README.md
++++ b/third_party/tinycc/README.md
+@@ -36,7 +36,7 @@ Local changes:
+   `test/runtime/float_conversions_unchecked.goose` checks values past 2^63.
+ 
+ - `tccelf.c`, `tccrun.c`: backtraces for an embedder's in-memory
+-  `-nostdlib` run, which `goose run --debug` is (`src/jit.h`).
++  `-nostdlib` run, which `goose run -g` is (`src/jit.h`).
+   `tcc_add_runtime` adds the `__rt_info` block a backtrace reads under
+   `-nostdlib` too, without `bt-log.o`; `bt_info` holds a file name of up to
+   1023 bytes rather than 99, since `#line` names absolute paths; and the
+-- 
+2.50.1 (Apple Git-155)
+

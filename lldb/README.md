@@ -6,7 +6,7 @@ editors that drive LLDB. It works with any compiler, and is most useful
 with one that emits `#line` under `--debug` (patches 0001-0003), so that
 breakpoints and stops are on `.goose` lines.
 
-With a compiler that also writes the debug map (patch 0005: `goose --debug`
+With a compiler that also writes the debug map (patch 0005: `goose -g`
 writes `<stem>.debug.json` beside the generated `<stem>.c`), it reads the
 map and shows what DWARF cannot: Goose names and types for every local,
 only the locals in scope, the elements of resizables, variable-size values,
@@ -40,7 +40,7 @@ In VS Code, with either the CodeLLDB extension or `lldb-dap` (the LLVM
 }
 ```
 
-Build the program with `goose build --debug -o prog prog.goose`. The
+Build the program with `goose build -g -o prog prog.goose`. The
 formatters are in the type category `goose`; `type category disable goose`
 turns them off.
 
@@ -233,7 +233,7 @@ GOOSE=/path/to/goose test/run.py --update   # rewrite the .expected files
 GOOSE=/path/to/goose test/run.py arrays     # one sample
 ```
 
-Each `test/*.goose` is built with `goose build --debug` and run under
+Each `test/*.goose` is built with `goose build -g` and run under
 `lldb --batch` with a breakpoint on every line marked `// BREAK`. At the
 first stop at each function and line the test records `frame variable`
 (Goose-named locals only), `goose-locals`, and the extra commands after
@@ -250,7 +250,7 @@ Each sample is recorded up to three ways:
 | without it | `GOOSE_LLDB_MAP=0` | `<sample>.nomap.expected` |
 | DWARF alone (`structs`, `generics`) | `GOOSE_LLDB_MAP=0 GOOSE_LLDB_CSOURCE=0` | `<sample>.nocsource.expected` |
 
-The runner asks the compiler (`goose --debug -o x.c`) whether it writes a
+The runner asks the compiler (`goose -g -o x.c`) whether it writes a
 map. A compiler that does not (before patch 0005) is checked against the
 `.nomap` and `.nocsource` files only, so the same files pass with both.
 `// BREAK maponly` stops are left out of the runs without a map: they stop

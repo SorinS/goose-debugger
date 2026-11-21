@@ -22,10 +22,14 @@ patches for its author, against the goose.git commit each one names.
   - `0005`: `--debug` writes `<stem>.debug.json` beside the C: the Goose
     names, types and scopes of functions and locals, and the fields and
     variants of their types.
+  - `0006`: all of the above moves from `--debug` to a flag of its own,
+    `-g` (or `--debug-info`), which also turns on `--debug`'s checks.
+    `--debug` alone is again what it is upstream: the checks and C debug
+    information, with the same C as without the patches.
 - `lldb/`: `goose_lldb.py`, LLDB summaries and synthetic children for Goose
   values, and its tests.
 - `tests/`: checks of the patched compiler: `line_directives.sh` through
-  LLDB in batch mode, `backtrace.sh` for `goose run --debug`.
+  LLDB in batch mode, `backtrace.sh` for `goose run -g`.
 - `docs/`: the plan.
 
 ## Trying the patches
@@ -42,7 +46,7 @@ GOOSE=$PWD/build/goose ../goose-debugger.git/tests/backtrace.sh
 Then, for any program:
 
 ```sh
-goose build --debug -o prog prog.goose
+goose build -g -o prog prog.goose
 lldb -o 'b prog.goose:12' -o run ./prog
 ```
 

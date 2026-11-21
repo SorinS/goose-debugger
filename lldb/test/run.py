@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Regression test for goose_lldb.py.
 
-For each test/*.goose: build it with `goose build --debug`, run it under
+For each test/*.goose: build it with `goose build -g`, run it under
 lldb in batch mode with a breakpoint on every line marked `// BREAK`, and at
 each stop record `frame variable` (Goose-named locals only, temporaries tN
 and hidden arguments dropped) and `goose-locals`. The record, with addresses
@@ -20,7 +20,7 @@ A compiler that writes no map (before patch 0005) is checked against
 
 Environment:
   GOOSE            the goose compiler (default: goose on PATH); it must emit
-                   #line under --debug
+                   #line under -g
   LLDB             lldb (default: lldb on PATH)
   GOOSE_LLDB_WORK  where binaries go (default: a fresh temporary directory)
 """
@@ -61,7 +61,7 @@ def unnamed(line):
 
 def build(goose, src, out):
     try:
-        r = subprocess.run([goose, "build", "--debug", "-o", out, src],
+        r = subprocess.run([goose, "build", "-g", "-o", out, src],
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     except OSError as e:
         raise SystemExit("cannot run the goose compiler %r (set GOOSE): %s" % (goose, e))
@@ -72,7 +72,7 @@ def build(goose, src, out):
 def writes_map(goose, src, work):
     """Whether this compiler writes the debug map beside the C."""
     c = os.path.join(work, "probe-" + os.path.basename(src)[:-6] + ".c")
-    subprocess.run([goose, "--debug", "-o", c, src], stdout=subprocess.DEVNULL,
+    subprocess.run([goose, "-g", "-o", c, src], stdout=subprocess.DEVNULL,
                    stderr=subprocess.DEVNULL)
     return os.path.exists(c[:-2] + ".debug.json")
 
