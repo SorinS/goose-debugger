@@ -1058,11 +1058,16 @@ def _type_by_path(valobj, frame, gmap):
     if len(toks) < 2:
         return None
     l = gmap.local(frame.GetFunctionName(), toks[0])
+    rest = toks[1:]
+    if l is None and toks[0] == gmap.globals_main:
+        # A global: a field of the main program's globals block.
+        l = next((g for g in gmap.globals if g.get("c") == toks[1]), None)
+        rest = toks[2:]
     if l is None:
         return None
     t = parse_type(l["type"])
     variant = None
-    for tok in toks[1:]:
+    for tok in rest:
         while t[0] in ("ref", "opt"):
             t = t[1]
         if tok.startswith("["):
@@ -1254,6 +1259,11 @@ class GooseSynth:
                 return int(name[1:-1])
             for i, c in enumerate(self.kids):
                 if c.GetName() == name:
+                    return i
+            # A C path (s_g.items_g) to a child the map named in Goose.
+            g = goose_name(name)
+            for i, c in enumerate(self.kids):
+                if c.GetName() == g:
                     return i
         except Exception:
             pass

@@ -1,0 +1,9 @@
+#!/bin/sh
+# goose-dap: the Goose DAP proxy in front of lldb-dap (goose_dap.py beside
+# this script). Speaks DAP on stdin/stdout; see README.md.
+self=$0
+while [ -L "$self" ]; do
+    link=$(readlink "$self")
+    case $link in /*) self=$link ;; *) self=$(dirname "$self")/$link ;; esac
+done
+exec "${PYTHON:-python3}" -u "$(dirname "$self")/goose_dap.py" "$@"

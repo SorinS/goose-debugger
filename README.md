@@ -34,6 +34,10 @@ patches for its author, against the goose.git commit each one names.
 - `patches/upstream/`: the same final change as three patches for the
   Goose author, each building and passing on its own: `-g` itself, the
   debug map, and `goose run -g`'s backtraces.
+- `dap/`: `goose-dap`, a Debug Adapter Protocol proxy in front of LLDB's
+  `lldb-dap` that makes an editor's debugger Goose-level: frame names,
+  only the Goose locals in scope, Goose watch expressions and function
+  breakpoints, and a "Goose runtime errors" exception filter.
 - `gdb/`: `goose_gdb.py`, gdb pretty-printers, `goose-locals`, `goose-bt`,
   `goose-globals`, `goose-as` and a frame filter for Goose names in `bt`,
   and its tests.
@@ -97,8 +101,8 @@ lldb -o 'b prog.goose:12' -o run ./prog
    values decoded, tag names, `T&`/`T?`/relative references and `bool`.
    With 0007 also globals (`goose-globals`), live lengths while a resizable
    grows, and function-value instances (`twice<F=inc>`). The `goose dap`
-   proxy is in progress in `dap/`; `docs/idea_integration.md` lists what
-   it must do.
+   proxy is `dap/goose-dap` (18 DAP tests on macOS);
+   `docs/idea_integration.md` lists what an IDE needs from it.
 4. Backtraces in `goose run`: done as draft patch 0004 (also on
    `debug1`). Tested on macOS arm64 only; `tests/backtrace.sh` should be
    run on Linux.

@@ -23,11 +23,11 @@ pool: PNode[>..] = [PNode { v: 1, next: null }, PNode { v: 2, next: PNode { v: 1
 log: u8[>..] = "x"
 -- target variable gs_globals_main
 (gs_globals_t) gs_globals_main = {
-  pool_g = len=2, element type not in debug info
+  pool_g = [PNode { v: 1, next: null }, PNode { v: 2, next: PNode { v: 1, next: null } }]
   gs_gstk_pool_g = {
     top = 0x_ <untyped bytes>
   }
-  log_g = len=1, element type not in debug info
+  log_g = "x"
   gs_gstk_log_g = {
     top = 0x_ <untyped bytes>
   }
