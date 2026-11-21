@@ -17,6 +17,12 @@ Command Line Tools have one), and a program built with `goose build -g`
 (patches 0001-0007). That build writes `<stem>.debug.json` beside the
 generated C, and goose-dap reads it.
 
+The oldest adapter it is tested with is `lldb-vscode` 16 (LLVM 16; LLVM
+18 renamed it `lldb-dap`). On Linux, LLVM 18 or later is the one to use:
+Ubuntu 20.04's focal-updates has `lldb-18` (`/usr/bin/lldb-dap-18`), and
+apt.llvm.org and the LLVM releases have newer ones. See
+[Adapter versions](#adapter-versions) for what differs.
+
 ## Files
 
 - `goose-dap`: the command an editor runs. A shell script that runs
@@ -41,8 +47,10 @@ goose-dap [--lldb-dap PATH] [--log FILE]
 
 - **lldb-dap.** It uses the first of: the launch configuration's `lldbDap`,
   `--lldb-dap`, `$GOOSE_DAP_LLDB_DAP`, `$LLDB_DAP`, `xcrun -f lldb-dap`,
-  `/Library/Developer/CommandLineTools/usr/bin/lldb-dap`, then `lldb-dap` or
-  `lldb-dap-NN` on `PATH`.
+  `/Library/Developer/CommandLineTools/usr/bin/lldb-dap`, then on `PATH`
+  `lldb-dap`, `lldb-dap-NN` (newest first), `lldb-vscode`, `lldb-vscode-NN`,
+  and last `/usr/lib/llvm-NN/bin/lldb-dap` or `lldb-vscode` (Debian and
+  Ubuntu's LLVM packages).
 - **Logging.** `--log FILE` or `GOOSE_DAP_LOG=FILE` logs every message in
   both directions, and lldb-dap's stderr.
 
@@ -294,8 +302,10 @@ runtime-error ones). It returns one breakpoint per client entry: verified
 if any instance is, with the message "N instances". `breakpoint` events and
 `hitBreakpointIds` for the extra instances are mapped to the client's id.
 
-**breakpointLocations.** lldb-dap 21 returns an empty list. goose-dap then
-answers from LLDB's line table for that file (`goose_dap_lldb.lines`), the
+**breakpointLocations.** goose-dap always offers it. lldb-dap 21 returns an
+empty list; lldb-dap 18 and lldb-vscode 16 do not have the request (and exit
+on a request they do not know), so goose-dap does not send it to them. Either
+way goose-dap answers from LLDB's line table for that file (`goose_dap_lldb.lines`), the
 lines a breakpoint binds to: for `area.goose` 1–12, the lines 1, 2, 3, 6, 7,
 8, 9 and 11.
 
@@ -361,8 +371,34 @@ through `test/dapclient.py`, and checks what a client sees:
 Every test checks at the end that goose-dap, lldb-dap and the debuggee have
 exited. Any that are left are killed by PID, and the test fails.
 
-Tested on macOS arm64 with Apple lldb-dap `lldb-2100.0.17.203` (LLVM 21)
-and the goose-debug compiler of goose.git `debug1` (patches 0001-0007).
+Tested (18/18 each) on macOS arm64 with Apple lldb-dap
+`lldb-2100.0.17.203` (LLVM 21) and the goose-debug compiler of goose.git
+`debug1` (patches 0001-0007); and on Linux x86_64 (Ubuntu 20.04, gcc 9.4,
+DWARF 4, `debug1` at 0007) with `lldb-vscode-16` (16.0.6) and `lldb-dap`
+18.1.8 (focal-updates' `lldb-18`).
+
+## Adapter versions
+
+What goose-dap does about the older adapters. None of it changes what a
+client sees from lldb-dap 21.
+
+| | lldb-vscode 16 | lldb-dap 18 | goose-dap |
+|---|---|---|---|
+| A request it has no handler for (`breakpointLocations`, ...) | exits, killing the program | exits, killing the program | answers `breakpointLocations` itself; fails a request whose capability lldb-dap did not announce instead of sending it |
+| `hitBreakpointIds` in `stopped` | missing; only `"description": "breakpoint 2.1"` | present | takes the ids from the description |
+| A value with a summary | `" Point { ... }"` (a leading space) | as 21 | strips it |
+| A repl line that is a command (`goose-locals`, `bt`) | evaluated as a C expression, unless it starts with `` ` `` | auto-detected | a repl line that fails to parse as an expression is run again as a command |
+| A repl expression's result | the value alone (`3`) | `(int32_t) $0 = 3` | passed on |
+| `hover` result | the value | `(gs_i64) total_g = 0`, as the repl | keeps the value |
+| `setVariable` response | `value` | `result` instead of `value` | moves it to `value` |
+| A field's `variablesReference` | from `MightHaveChildren()`, kept for the life of the frame's variable | from `MightHaveChildren()` | see below |
+| disconnect | exits | crashes ("double free or corruption") and hangs | ends it after 3 s |
+
+`MightHaveChildren()` asks goose_lldb.py's synthetic provider
+(`GooseSynth.has_children`) before the provider's `update()` has run, and it
+answers from its still-empty child list. So `u.pos` and a resizable listed
+before its first push cannot be expanded. `goose_dap_lldb.py` patches
+`has_children` when it loads; the change goose_lldb.py needs is below.
 
 ## Limits
 
@@ -397,8 +433,8 @@ and the goose-debug compiler of goose.git `debug1` (patches 0001-0007).
   subtle.
 - **Not tried:** threaded programs (each thread's stack is rewritten, and a
   global in a watch is read through `gs_gl` when the map names it, but no
-  threaded sample was run), Linux (lldb-dap from LLVM releases), Windows,
-  attach, and `runInTerminal`. Reverse requests are forwarded. The real VS Code,
+  threaded sample was run), lldb-dap 19 and 20, Windows, attach, and
+  `runInTerminal`. Reverse requests are forwarded. The real VS Code,
   Neovim and IntelliJ clients were not run here; the configurations above
   follow their documentation.
 
@@ -447,4 +483,19 @@ writes Goose field names.
 +            for i, c in enumerate(self.kids):
 +                if c.GetName() == g:
 +                    return i
+```
+
+The third is for lldb-vscode 16 and lldb-dap 18 (see
+[Adapter versions](#adapter-versions)): `has_children` must not depend on
+`update()` having run, and it is a "might": LLDB keeps the first answer.
+Until goose_lldb.py has it, `goose_dap_lldb.py` wraps `has_children` the
+same way when it loads (harmless once goose_lldb.py has the change).
+
+```diff
+@@ class GooseSynth:
+     def has_children(self):
+-        return len(self.kids) > 0
++        if not self.kids:
++            self.update()
++        return len(self.kids) > 0 or self.kind not in (None, "cenum")
 ```

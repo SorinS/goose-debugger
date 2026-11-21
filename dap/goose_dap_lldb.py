@@ -75,7 +75,8 @@ def info():
             block = [gt.GetFieldAtIndex(i).GetName() for i in range(gt.GetNumberOfFields())]
         exe = target.GetExecutable()
         _out({"cus": cus, "maps": maps, "globals_block": block,
-              "program": exe.fullpath if exe and exe.IsValid() else None})
+              "program": exe.fullpath if exe and exe.IsValid() else None,
+              "lldb": lldb.SBDebugger.GetVersionString()})
     except Exception as e:
         _out({"error": "%s: %s" % (type(e).__name__, e)})
 
@@ -158,5 +159,37 @@ def runtime_error(tid):
         _out({"error": "%s: %s" % (type(e).__name__, e)})
 
 
+def _patch_has_children():
+    """lldb-vscode 16 and lldb-dap 18 give a variable a variablesReference
+    only if MightHaveChildren(), which asks the synthetic provider's
+    has_children(), possibly before update() has run; goose_lldb.GooseSynth
+    then answers from its still-empty child list, so a struct field (u.pos)
+    cannot be expanded. Until goose_lldb.py does this itself, patch it."""
+    try:
+        import goose_lldb
+        cls = goose_lldb.GooseSynth
+    except Exception:
+        return
+    if getattr(cls, "_goose_dap_has_children", False):
+        return
+    orig = cls.has_children
+
+    def has_children(self):
+        if not self.kids:
+            try:
+                self.update()
+            except Exception:
+                pass
+        if orig(self):
+            return True
+        # LLDB keeps the first answer for as long as the frame's variable
+        # lives (lldb-vscode 16: a resizable seen before it was filled in
+        # then never expands), so answer "might", not "has now".
+        return getattr(self, "kind", None) not in (None, "cenum")
+
+    cls.has_children = has_children
+    cls._goose_dap_has_children = True
+
+
 def __lldb_init_module(debugger, internal_dict):
-    pass
+    _patch_has_children()

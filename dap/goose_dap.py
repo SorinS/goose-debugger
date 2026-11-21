@@ -53,6 +53,28 @@ GOOSE_FILTER = "goose_runtime"
 RUNTIME_ERROR_FUNCS = ("gs_fail", "gs_panic")
 INTERNAL_TIMEOUT = 15.0
 
+# Requests that need a capability; one lldb-dap did not announce is
+# answered here rather than forwarded (see on_client).
+GATED_REQUESTS = {
+    "stepInTargets": "supportsStepInTargetsRequest",
+    "gotoTargets": "supportsGotoTargetsRequest",
+    "goto": "supportsGotoTargetsRequest",
+    "restart": "supportsRestartRequest",
+    "restartFrame": "supportsRestartFrame",
+    "loadedSources": "supportsLoadedSourcesRequest",
+    "readMemory": "supportsReadMemoryRequest",
+    "writeMemory": "supportsWriteMemoryRequest",
+    "disassemble": "supportsDisassembleRequest",
+    "setExpression": "supportsSetExpression",
+    "dataBreakpointInfo": "supportsDataBreakpoints",
+    "setDataBreakpoints": "supportsDataBreakpoints",
+    "setInstructionBreakpoints": "supportsInstructionBreakpoints",
+    "modules": "supportsModulesRequest",
+    "terminateThreads": "supportsTerminateThreadsRequest",
+    "stepBack": "supportsStepBack",
+    "reverseContinue": "supportsStepBack",
+}
+
 # A Goose local, field or function as C spells it: x_g, it_g_2, bump_g_1.
 _NAME_RE = re.compile(r"^(.+?)_g(_?[0-9]+)?$")
 _INDEX_RE = re.compile(r"^\[[0-9]+\]$")
@@ -329,6 +351,7 @@ class Proxy:
         self.map_loaded = False
         self.escape = "`"
         self.init_args = None
+        self.adapter_caps = {}        # lldb-dap's own capabilities
         self.launch_args = {}
         self.show_runtime_frames = False
         self.stop_on_runtime_error = True
@@ -457,10 +480,20 @@ class Proxy:
             pass
         if os.path.exists(DEFAULT_LLDB_DAP):
             return DEFAULT_LLDB_DAP
-        for n in ["lldb-dap"] + ["lldb-dap-%d" % v for v in range(30, 15, -1)] + ["lldb-vscode"]:
+        # LLVM 18 renamed lldb-vscode to lldb-dap; Debian and Ubuntu install
+        # versioned names (lldb-dap-18, lldb-vscode-16) on PATH and the
+        # plain ones in /usr/lib/llvm-NN/bin.
+        names = ["lldb-dap"] + ["lldb-dap-%d" % v for v in range(30, 17, -1)] + \
+                ["lldb-vscode"] + ["lldb-vscode-%d" % v for v in range(17, 15, -1)]
+        for n in names:
             p = shutil.which(n)
             if p:
                 return p
+        for v in range(30, 15, -1):
+            for n in ("lldb-dap", "lldb-vscode"):
+                p = "/usr/lib/llvm-%d/bin/%s" % (v, n)
+                if os.access(p, os.X_OK):
+                    return p
         return "lldb-dap"
 
     def start_child(self, path):
@@ -616,6 +649,12 @@ class Proxy:
                 return
             self.respond(req, success=False, message="lldb-dap is not running")
             return
+        cap = GATED_REQUESTS.get(cmd)
+        if h is None and cap and not self.adapter_caps.get(cap):
+            # lldb-vscode and lldb-dap 18 exit on a request they have no
+            # handler for, taking the debuggee with them.
+            self.respond(req, success=False, message="%s is not supported by this lldb-dap" % cmd)
+            return
         if h is None:
             if cmd in ("continue", "next", "stepIn", "stepOut", "stepBack", "reverseContinue",
                        "goto", "restartFrame"):
@@ -685,6 +724,7 @@ class Proxy:
         r = self.adapter_request("initialize", self.init_args or {})
         if r is None or not r.get("success"):
             return False
+        self.adapter_caps = dict(r.get("body") or {})
         caps = self.rewrite_capabilities(dict(r.get("body") or {}))
         self.event("capabilities", {"capabilities": caps})
         return True
@@ -800,7 +840,23 @@ class Proxy:
         self.forward(req)
 
     def c_breakpointLocations(self, req):
-        self.forward(req, ctx={"kind": "bplocs"})
+        if self.adapter_caps.get("supportsBreakpointLocationsRequest"):
+            self.forward(req, ctx={"kind": "bplocs"})
+            return
+        # lldb-vscode and lldb-dap 18 have no breakpointLocations, and a
+        # request they do not know ends them: answer from the line table.
+        body = {"breakpoints": []}
+        self.fill_breakpoint_locations(req, body)
+        self.respond(req, body)
+
+    def fill_breakpoint_locations(self, req, body):
+        a = req.get("arguments") or {}
+        path = (a.get("source") or {}).get("path")
+        lines = self.source_lines(path) if path else None
+        if lines:
+            lo = int(a.get("line") or 1)
+            hi = int(a.get("endLine") or lo)
+            body["breakpoints"] = [{"line": n} for n in lines if lo <= n <= hi]
 
     def c_stackTrace(self, req):
         a = req.get("arguments") or {}
@@ -997,21 +1053,30 @@ class Proxy:
         expr = a.get("expression")
         ctxname = a.get("context")
         info = self.frames.get(a.get("frameId"))
+        # lldb-vscode 16 has no repl auto mode: a command needs the escape
+        # prefix there. A plain repl line it cannot parse as an expression
+        # is tried again as a command (see rewrite_response).
+        retry = None
+        if ctxname == "repl" and isinstance(expr, str) and self.escape and \
+                not expr.startswith(self.escape):
+            retry = dict(a, expression=self.escape + expr)
         if not isinstance(expr, str) or info is None or not info.get("goose"):
-            self.forward(req, ctx={"kind": "evaluate", "prefix": None})
+            self.forward(req, ctx={"kind": "evaluate", "prefix": None, "context": ctxname,
+                                   "retry": retry})
             return
         if ctxname == "repl":
             if self.escape and expr.startswith(self.escape):
                 self.forward(req)
                 return
             if not self.repl_is_goose(expr, info):
-                self.forward(req)
+                self.forward(req, ctx={"kind": "evaluate", "prefix": None, "context": ctxname,
+                                       "retry": retry})
                 return
         cexpr, gtype = self.rewrite_expr(expr, info)
         alt, _ = self.rewrite_expr(expr, info, goose_fields=True)
         a["expression"] = cexpr
         self.forward(req, args=a, ctx={"kind": "evaluate", "prefix": expr.strip(), "gtype": gtype,
-                                       "changed": cexpr != expr,
+                                       "changed": cexpr != expr, "context": ctxname,
                                        "alt": dict(a, expression=alt) if alt != cexpr else None})
 
     def repl_is_goose(self, expr, info):
@@ -1221,6 +1286,7 @@ class Proxy:
             "default": True, "supportsCondition": True}]
         caps["supportsExceptionInfoRequest"] = True
         caps["supportsExceptionFilterOptions"] = True
+        caps["supportsBreakpointLocationsRequest"] = True
         return caps
 
     def rewrite_response(self, req, ctx, m):
@@ -1233,10 +1299,20 @@ class Proxy:
                 m["success"] = True
                 m.pop("message", None)
                 m["body"] = r.get("body")
+        if not m.get("success") and kind == "evaluate" and ctx.get("retry") and \
+                re.search(r"failed to parse|undeclared identifier", m.get("message") or ""):
+            # A parse failure ran nothing, so the line can go again as a command.
+            r = self.adapter_request("evaluate", ctx["retry"])
+            if r is not None and r.get("success"):
+                m["success"] = True
+                m.pop("message", None)
+                m["body"] = r.get("body")
+                return m
         if not m.get("success"):
             return m
         body = m.get("body")
         if kind == "initialize":
+            self.adapter_caps = dict(body or {})
             m["body"] = self.rewrite_capabilities(dict(body or {}))
         elif kind == "scopes":
             self.rewrite_scopes(ctx.get("frame"), body)
@@ -1245,16 +1321,12 @@ class Proxy:
         elif kind == "evaluate":
             self.rewrite_evaluate(ctx, body)
         elif kind == "setVariable" and isinstance(body, dict):
-            body["value"] = clean_value(body.get("value"), body.get("type"), None)
+            # lldb-dap 18 answers with "result" where the protocol has "value".
+            v = body.get("value", body.pop("result", None))
+            body["value"] = clean_value(v, body.get("type"), None)
         elif kind == "bplocs":
             if isinstance(body, dict) and not body.get("breakpoints"):
-                a = req.get("arguments") or {}
-                path = (a.get("source") or {}).get("path")
-                lines = self.source_lines(path) if path else None
-                if lines:
-                    lo = int(a.get("line") or 1)
-                    hi = int(a.get("endLine") or lo)
-                    body["breakpoints"] = [{"line": n} for n in lines if lo <= n <= hi]
+                self.fill_breakpoint_locations(req, body)
         return m
 
     def rewrite_scopes(self, info, body):
@@ -1359,6 +1431,12 @@ class Proxy:
         if not isinstance(body, dict):
             return
         gtype = ctx.get("gtype")
+        res, ctype = body.get("result"), body.get("type")
+        if ctx.get("context") not in (None, "repl") and isinstance(res, str) and ctype and \
+                res.startswith("(%s) " % ctype) and " = " in res:
+            # lldb-dap 18 answers a hover as it does the repl,
+            # "(gs_i64) total_g = 0": keep the value.
+            body["result"] = res.partition(" = ")[2]
         if "result" in body and ctx.get("changed") is not None:
             res = body.get("result")
             ctype = body.get("type")
@@ -1395,6 +1473,12 @@ class Proxy:
                 return e
             if body is not None:
                 hit = body.get("hitBreakpointIds") or []
+                if "hitBreakpointIds" not in body and body.get("reason") in ("breakpoint", "function breakpoint"):
+                    # lldb-vscode 16 has no hitBreakpointIds, only its
+                    # description, "breakpoint 2.1" (breakpoint 2, location 1).
+                    hit = [int(n) for n in re.findall(r"\b(\d+)\.\d+\b", body.get("description") or "")]
+                    if hit:
+                        body["hitBreakpointIds"] = hit
                 tid = body.get("threadId")
                 if self.runtime_bp_ids and any(h in self.runtime_bp_ids for h in hit):
                     err = self.runtime_error(tid)
@@ -1424,6 +1508,7 @@ class Proxy:
             self.terminated_sent = True
             return e
         if name == "capabilities" and body is not None and isinstance(body.get("capabilities"), dict):
+            self.adapter_caps.update(body["capabilities"])
             caps = dict(body["capabilities"])
             caps.pop("supportsCompletionsRequest", None)
             caps.pop("supportsCancelRequest", None)
@@ -1459,6 +1544,7 @@ class Proxy:
         if isinstance(info, dict) and not info.get("error"):
             paths = [p for p in info.get("maps") or [] if isinstance(p, str)]
             self.globals_block = info.get("globals_block") or []
+            self.log("lldb:", info.get("lldb"))
         if not paths:
             paths = self.guess_map_paths()
         docs = []
@@ -1518,6 +1604,8 @@ def clean_value(value, ctype, gtype):
     bool as true/false."""
     if not isinstance(value, str):
         return value
+    # lldb-vscode 16 joins an empty value and the summary with a space.
+    value = value.lstrip()
     m = _ADDR_PREFIX_RE.match(value)
     if m and ("*" in (ctype or "") or re.match(r"^[ro]_", ctype or "")):
         value = m.group(1)

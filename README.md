@@ -91,6 +91,10 @@ lldb -o 'b prog.goose:12' -o run ./prog
   `jit_runtime.c` built with frame pointers (0004 does that); crash
   backtraces work without. With patches 0005-0007 the gdb printers pass
   their tests (16/16 with gcc; clang needs `-gdwarf-4` for gdb before 10).
+  goose-dap passes its tests (18/18) with `lldb-vscode-16` (LLVM 16.0.6)
+  and with `lldb-dap` 18.1.8 (Ubuntu's `lldb-18`); it works around the
+  older adapters' protocol differences (dap/README.md, "Adapter
+  versions"), but LLVM 18 or later is the one to use.
 - **Windows** (Server 2022, MSVC 19.44; cdb 10.0.26100, LLDB 23.1 on PDB):
   patches 0001-0004 work. `goose build --debug` writes a PDB beside the
   exe; cdb and LLDB bind breakpoints to Goose lines (one location per

@@ -386,7 +386,9 @@ def test_struct_values(t):
     eq(s.value("u.pos.x"), "3", "u.pos.x")
     eq(s.value("p.y"), "-4", "p.y")
     eq(s.value("u.hp"), "99", "u.hp")
-    check(s.value("u.pos.x", "repl").endswith("= 3"), "repl u.pos.x")
+    # lldb-dap: "(int32_t) $0 = 3"; lldb-vscode 16: the value alone.
+    r = s.value("u.pos.x", "repl")
+    check(r == "3" or r.endswith("= 3"), "repl u.pos.x: %r" % r)
     eq(s.value("shapes[1]"), "Shape.Rect { w: 2.0, h: 3.0 }", "shapes[1]")
     eq(s.value("circle.r"), "1.5", "circle.r")
     eq(s.value("label.text"), '"hi"', "label.text")
