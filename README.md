@@ -41,6 +41,12 @@ patches for its author, against the goose.git commit each one names.
 - `gdb/`: `goose_gdb.py`, gdb pretty-printers, `goose-locals`, `goose-bt`,
   `goose-globals`, `goose-as` and a frame filter for Goose names in `bt`,
   and its tests.
+- `natvis/`: Windows: `goose.natvis` for the generic names,
+  `gen_natvis.py` for a program's own types (from its debug map and C),
+  and `goose.js`, a WinDbg/cdb script that decodes what natvis cannot
+  (`!goose_locals`, `!goose_globals`). `patches/proposed/natvis-embed.diff`
+  would have `goose build -g` with MSVC embed the natvis in the PDB
+  (`/NATVIS`); drafted, not yet built into goose.
 - `lldb/`: `goose_lldb.py`, LLDB summaries and synthetic children for Goose
   values, and its tests.
 - `tests/`: checks of the patched compiler: `line_directives.sh` through
@@ -86,7 +92,11 @@ lldb -o 'b prog.goose:12' -o run ./prog
   714 test programs built with `--debug` print what `goose run --debug`
   prints. cdb needs `sxd av`: the runtime commits its stacks from a
   vectored exception handler, which cdb otherwise stops on. 0004's
-  backtraces are off on Windows by design.
+  backtraces are off on Windows by design. With 0005-0007, natvis and
+  `goose.js` pass their cdb tests (14/14). LLDB 23 on PDB runs
+  `goose_lldb.py` and `goose-locals` decodes as on macOS, but PDB's
+  canonical type names (`unsigned char *`, `long long`) still defeat
+  some of its matching.
 
 ## Status
 

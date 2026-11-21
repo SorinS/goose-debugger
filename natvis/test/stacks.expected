@@ -1,0 +1,86 @@
+@@ stacks.goose:7 fill_g
+-- dx -r1 n_g
+n_g              : 4 [Type: __int64]
+-- dx -r1 out_g
+out_g            : len=3 [Type: gs_rref]
+    [<Raw View>]     [Type: gs_rref]
+    [len]            : 3 [Type: __int64]
+    [base]           : 0x_ : 0x0 [Type: unsigned char *]
+    [as u8 text]     : ""
+    [as i64]         : [0, 1, 4]
+    [as i32]         : [0, 0, 1]
+    [as f64]         : [0.000000, 0.000000, 0.000000]
+-- dx -r1 last_g
+last_g           : 0 [Type: __int64]
+-- dx -r1 i_g
+i_g              : 3 [Type: __int64]
+-- !goose_locals
+n: i64 = 4
+out: i64[>..]& = [0, 1, 4]
+last: i64 = 0
+i: i64 = 3
+@@ stacks.goose:10 fill_g
+-- dx -r1 n_g
+n_g              : 4 [Type: __int64]
+-- dx -r1 out_g
+out_g            : len=4 [Type: gs_rref]
+    [<Raw View>]     [Type: gs_rref]
+    [len]            : 4 [Type: __int64]
+    [base]           : 0x_ : 0x0 [Type: unsigned char *]
+    [as u8 text]     : ""
+    [as i64]         : [0, 1, 4, 9]
+    [as i32]         : [0, 0, 1, 0]
+    [as f64]         : [0.000000, 0.000000, 0.000000, 0.000000]
+-- dx -r1 last_g
+last_g           : 4 [Type: __int64]
+-- dx -r1 i_g
+i_g              : 4 [Type: __int64]
+-- !goose_locals
+n: i64 = 4
+out: i64[>..]& = [0, 1, 4, 9]
+last: i64 = 4
+i: i64 = 4
+@@ stacks.goose:23 main_g
+-- dx -r1 squares_g
+squares_g        : len=4 [Type: gs_rhdr]
+    [<Raw View>]     [Type: gs_rhdr]
+    [len]            : 4 [Type: __int64]
+    [base]           : 0x_ : 0x0 [Type: unsigned char *]
+    [as u8 text]     : ""
+    [as i64]         : [0, 1, 4, 9]
+    [as i32]         : [0, 0, 1, 0]
+    [as f64]         : [0.000000, 0.000000, 0.000000, 0.000000]
+-- dx -r1 frozen_g
+frozen_g         : 0x_ : 0x3 [Type: unsigned char *]
+    0x3 [Type: unsigned char]
+-- dx -r1 word_g
+word_g           : 0x_ : 0x6 [Type: unsigned char *]
+    0x6 [Type: unsigned char]
+-- dx -r1 rec_g
+rec_g            : 0x_ : 0xd8 [Type: unsigned char *]
+    0xd8 [Type: unsigned char]
+-- dx -r1 words_g
+words_g          : len=2 [Type: gs_rhdr]
+    [<Raw View>]     [Type: gs_rhdr]
+    [len]            : 2 [Type: __int64]
+    [base]           : 0x_ : 0x3 [Type: unsigned char *]
+    [as u8 text]     : "."
+    [as i64]         : [244723177781985283, 122558837948416]
+    [as i32]         : [3, 56979055]
+    [as f64]         : [0.000000, 0.000000]
+-- dx -r1 msg_g
+msg_g            : len=3 [Type: gs_rhdr]
+    [<Raw View>]     [Type: gs_rhdr]
+    [len]            : 3 [Type: __int64]
+    [base]           : 0x_ : 0x6e [Type: unsigned char *]
+    [as u8 text]     : "n=4"
+    [as i64]         : [3423598, 0, 0]
+    [as i32]         : [3423598, 0, 0]
+    [as f64]         : [0.000000, 0.000000, 0.000000]
+-- !goose_locals
+squares: i64[>..] = [0, 1, 4, 9]
+frozen: i64[] = [7, 8, 9]
+word: u8[] = "frozen"
+rec: Rec = Rec { id: 300, name: "rec" }
+words: u8[][>..] = ["one", "two"]
+msg: u8[>..] = "n=4"

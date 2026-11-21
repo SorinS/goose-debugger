@@ -1,0 +1,32 @@
+@@ resizable.goose:12 main_g
+-- dx -r1 nums_g
+nums_g           : len=4 [Type: gs_rhdr]
+    [<Raw View>]     [Type: gs_rhdr]
+    [len]            : 4 [Type: __int64]
+    [base]           : 0x_ : 0x0 [Type: unsigned char *]
+    [as u8 text]     : ""
+    [as i64]         : [12884901888, 38654705670, 0, 0]
+    [as i32]         : [0, 3, 6, 9]
+    [as f64]         : [0.000000, 0.000000, 0.000000, 0.000000]
+-- dx -r1 i_g
+i_g              : 4 [Type: __int64]
+-- dx -r1 text_g
+text_g           : len=7 [Type: gs_rhdr]
+    [<Raw View>]     [Type: gs_rhdr]
+    [len]            : 7 [Type: __int64]
+    [base]           : 0x_ : 0x67 [Type: unsigned char *]
+    [as u8 text]     : "grow 42"
+    [as i64]         : [14131062882923111, 0, 0, 0, 0, 0, 0]
+    [as i32]         : [2003792487, 3290144, 0, 0, 0, 0, 0]
+    [as f64]         : [0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000, 0.000000]
+-- dx -r1 s_g
+s_g              : Stack { name: "main", depth: 2, items: [7, 9] } [Type: Stack_g]
+    [<Raw View>]     [Type: Stack_g]
+    name             : "main" [Type: l8_u8]
+    depth            : 2 [Type: int]
+    items            : [7, 9]
+-- !goose_locals
+nums: u32[>..] = [0, 3, 6, 9]
+i: i64 = 4
+text: u8[>..] = "grow 42"
+s: Stack = Stack { name: "main", depth: 2, items: [7, 9] }

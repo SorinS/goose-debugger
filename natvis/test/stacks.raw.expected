@@ -1,0 +1,44 @@
+@@ stacks.goose:7 fill_g
+-- dx -r1 n_g
+n_g              : 4 [Type: __int64]
+-- dx -r1 out_g
+out_g            [Type: gs_rref]
+    [+0x000] hdr              : 0x_ [Type: gs_rhdr *]
+    [+0x008] stk              : 0x_ [Type: gs_stack *]
+-- dx -r1 last_g
+last_g           : 0 [Type: __int64]
+-- dx -r1 i_g
+i_g              : 3 [Type: __int64]
+@@ stacks.goose:10 fill_g
+-- dx -r1 n_g
+n_g              : 4 [Type: __int64]
+-- dx -r1 out_g
+out_g            [Type: gs_rref]
+    [+0x000] hdr              : 0x_ [Type: gs_rhdr *]
+    [+0x008] stk              : 0x_ [Type: gs_stack *]
+-- dx -r1 last_g
+last_g           : 4 [Type: __int64]
+-- dx -r1 i_g
+i_g              : 4 [Type: __int64]
+@@ stacks.goose:23 main_g
+-- dx -r1 squares_g
+squares_g        [Type: gs_rhdr]
+    [+0x000] base             : 0x_ : 0x0 [Type: unsigned char *]
+    [+0x008] len              : 4 [Type: __int64]
+-- dx -r1 frozen_g
+frozen_g         : 0x_ : 0x3 [Type: unsigned char *]
+    0x3 [Type: unsigned char]
+-- dx -r1 word_g
+word_g           : 0x_ : 0x6 [Type: unsigned char *]
+    0x6 [Type: unsigned char]
+-- dx -r1 rec_g
+rec_g            : 0x_ : 0xd8 [Type: unsigned char *]
+    0xd8 [Type: unsigned char]
+-- dx -r1 words_g
+words_g          [Type: gs_rhdr]
+    [+0x000] base             : 0x_ : 0x3 [Type: unsigned char *]
+    [+0x008] len              : 2 [Type: __int64]
+-- dx -r1 msg_g
+msg_g            [Type: gs_rhdr]
+    [+0x000] base             : 0x_ : 0x6e [Type: unsigned char *]
+    [+0x008] len              : 3 [Type: __int64]

@@ -1,0 +1,59 @@
+@@ arrays.goose:11 main_g
+-- dx -r1 fixed_g
+fixed_g          [Type: a4_i32]
+    [+0x000] e                [Type: int [4]]
+-- dx -r1 grow_g
+grow_g           [Type: gs_rhdr]
+    [+0x000] base             : 0x_ : 0xa [Type: unsigned char *]
+    [+0x008] len              : 5 [Type: __int64]
+-- dx -r1 view_g
+view_g           [Type: sl_i64]
+    [+0x000] data             : 0x_ : 20 [Type: __int64 *]
+    [+0x008] len              : 3 [Type: __int64]
+-- dx -r1 bytes_g
+bytes_g          [Type: sl_u8]
+    [+0x000] data             : 0x_ : 0x67 [Type: unsigned char *]
+    [+0x008] len              : 8 [Type: __int64]
+-- dx -r1 lit_g
+lit_g            [Type: sl_u8]
+    [+0x000] data             : 0x_ : 0x68 [Type: unsigned char *]
+    [+0x008] len              : 12 [Type: __int64]
+-- dx -r1 name_g
+name_g           [Type: l16_u8]
+    [+0x000] len              : 0x0 [Type: unsigned char]
+    [+0x001] e                [Type: unsigned char [16]]
+-- dx -r1 gs_globals_main
+gs_globals_main  [Type: gs_globals_t]
+    [+0x000] buf_g            [Type: a8_u8]
+@@ arrays.goose:14 main_g
+-- dx -r1 fixed_g
+fixed_g          [Type: a4_i32]
+    [+0x000] e                [Type: int [4]]
+-- dx -r1 grow_g
+grow_g           [Type: gs_rhdr]
+    [+0x000] base             : 0x_ : 0xa [Type: unsigned char *]
+    [+0x008] len              : 5 [Type: __int64]
+-- dx -r1 view_g
+view_g           [Type: sl_i64]
+    [+0x000] data             : 0x_ : 20 [Type: __int64 *]
+    [+0x008] len              : 3 [Type: __int64]
+-- dx -r1 bytes_g
+bytes_g          [Type: sl_u8]
+    [+0x000] data             : 0x_ : 0x67 [Type: unsigned char *]
+    [+0x008] len              : 8 [Type: __int64]
+-- dx -r1 lit_g
+lit_g            [Type: sl_u8]
+    [+0x000] data             : 0x_ : 0x68 [Type: unsigned char *]
+    [+0x008] len              : 12 [Type: __int64]
+-- dx -r1 name_g
+name_g           [Type: l16_u8]
+    [+0x000] len              : 0x3 [Type: unsigned char]
+    [+0x001] e                [Type: unsigned char [16]]
+-- dx -r1 frozen_g
+frozen_g         : 0x_ : 0x3 [Type: unsigned char *]
+    0x3 [Type: unsigned char]
+-- dx -r1 n_g
+n_g              : 26 [Type: __int64]
+-- dx -r1 gs_globals_main
+gs_globals_main  [Type: gs_globals_t]
+    [+0x000] buf_g            [Type: a8_u8]

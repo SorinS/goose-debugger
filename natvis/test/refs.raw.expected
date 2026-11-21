@@ -1,0 +1,41 @@
+@@ refs.goose:11 bump_g_1
+-- dx -r1 o_g
+o_g              : 0x_ [Type: Node_g *]
+    [+0x000] v_g              : 2 [Type: __int64]
+    [+0x008] next_g           : 0x_ [Type: Node_g *]
+-- dx -r1 r_g
+r_g              : 0x_ : 6 [Type: __int64 *]
+    6 [Type: __int64]
+-- dx -r1 found_g
+found_g          : 2 [Type: __int64]
+@@ refs.goose:11 bump_g_2
+-- dx -r1 o_g
+o_g              : 0x0 [Type: Node_g *]
+-- dx -r1 r_g
+r_g              : 0x_ : 7 [Type: __int64 *]
+    7 [Type: __int64]
+-- dx -r1 found_g
+found_g          : -1 [Type: __int64]
+@@ refs.goose:24 main_g
+-- dx -r1 n_g
+n_g              : 7 [Type: __int64]
+-- dx -r1 c_g
+c_g              [Type: Node_g]
+    [+0x000] v_g              : 3 [Type: __int64]
+    [+0x008] next_g           : 0x0 [Type: Node_g *]
+-- dx -r1 b_g
+b_g              [Type: Node_g]
+    [+0x000] v_g              : 2 [Type: __int64]
+    [+0x008] next_g           : 0x_ [Type: Node_g *]
+-- dx -r1 some_g
+some_g           : 0x_ [Type: Node_g *]
+    [+0x000] v_g              : 2 [Type: __int64]
+    [+0x008] next_g           : 0x_ [Type: Node_g *]
+-- dx -r1 none_g
+none_g           : 0x0 [Type: Node_g *]
+-- dx -r1 pool_g
+pool_g           [Type: gs_rhdr]
+    [+0x000] base             : 0x_ : 0x1 [Type: unsigned char *]
+    [+0x008] len              : 2 [Type: __int64]
+-- dx -r1 k_g
+k_g              : 51 [Type: __int64]

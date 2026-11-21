@@ -1,0 +1,49 @@
+@@ structs.goose:24 main_g
+-- dx -r1 p_g
+p_g              : Point { x: 3, y: -4 } [Type: Point_g]
+    [<Raw View>]     [Type: Point_g]
+    x                : 3 [Type: int]
+    y                : -4 [Type: int]
+-- dx -r1 u_g
+u_g              : Unit { kind: 1, hp: 99, pos: Point { x: 3, y: -4 }, tag: "hero" } [Type: Unit_g]
+    [<Raw View>]     [Type: Unit_g]
+    kind             : 1 [Type: unsigned char]
+    hp               : 99 [Type: int]
+    pos              : Point { x: 3, y: -4 } [Type: Point_g]
+    tag              : "hero" [Type: l8_u8]
+-- dx -r1 c_g
+c_g              : Color.Green [Type: Color_g]
+    [+0x000] tag              : 0x1 [Type: unsigned char]
+-- dx -r1 circle_g
+circle_g         : Shape.Circle { r: 1.500000 } [Type: Shape_g_Circle_p]
+    [<Raw View>]     [Type: Shape_g_Circle_p]
+    r                : 1.500000 [Type: double]
+-- dx -r1 rect_g
+rect_g           : Shape.Rect { w: 2.000000, h: 3.000000 } [Type: Shape_g_Rect_p]
+    [<Raw View>]     [Type: Shape_g_Rect_p]
+    w                : 2.000000 [Type: double]
+    h                : 3.000000 [Type: double]
+-- dx -r1 dot_g
+dot_g            : Shape.Dot [Type: Shape_g]
+    [<Raw View>]     [Type: Shape_g]
+-- dx -r1 label_g
+label_g          : 0x_ : 0x0 [Type: unsigned char *]
+    0x0 [Type: unsigned char]
+-- dx -r1 shapes_g
+shapes_g         : len=2 [Type: gs_rhdr]
+    [<Raw View>]     [Type: gs_rhdr]
+    [len]            : 2 [Type: __int64]
+    [base]           : 0x_ : 0x0 [Type: unsigned char *]
+    [as u8 text]     : ""
+    [as i64]         : [-576460752303423488, 63]
+    [as i32]         : [0, -134217728]
+    [as f64]         : [-1.056589e+270, 0.000000]
+-- !goose_locals
+p: Point = Point { x: 3, y: -4 }
+u: Unit = Unit { kind: 1, hp: 99, pos: Point { x: 3, y: -4 }, tag: "hero" }
+c: Color = Color.Green
+circle: Shape.Circle = Shape.Circle { r: 1.5 }
+rect: Shape.Rect = Shape.Rect { w: 2.0, h: 3.0 }
+dot: Shape = Shape.Dot
+label: Mark.. = Mark.Label { text: "hi" }
+shapes: Shape[>..] = [Shape.Circle { r: 1.5 }, Shape.Rect { w: 2.0, h: 3.0 }]

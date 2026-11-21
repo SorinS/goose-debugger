@@ -1,0 +1,146 @@
+@@ arrays.goose:11 main_g
+-- dx -r1 fixed_g
+fixed_g          : [1, 2, 3, 4] [Type: a4_i32]
+    [<Raw View>]     [Type: a4_i32]
+    [0]              : 1 [Type: int]
+    [1]              : 2 [Type: int]
+    [2]              : 3 [Type: int]
+    [3]              : 4 [Type: int]
+-- dx -r1 grow_g
+grow_g           : len=5 [Type: gs_rhdr]
+    [<Raw View>]     [Type: gs_rhdr]
+    [len]            : 5 [Type: __int64]
+    [base]           : 0x_ : 0xa [Type: unsigned char *]
+    [as u8 text]     : "."
+    [as i64]         : [10, 20, 30, 40, 50]
+    [as i32]         : [10, 0, 20, 0, 30]
+    [as f64]         : [0.000000, 0.000000, 0.000000, 0.000000, 0.000000]
+-- dx -r1 view_g
+view_g           : [20, 30, 40] [Type: sl_i64]
+    [<Raw View>]     [Type: sl_i64]
+    [len]            : 3 [Type: __int64]
+    [0]              : 20 [Type: __int64]
+    [1]              : 30 [Type: __int64]
+    [2]              : 40 [Type: __int64]
+-- dx -r1 bytes_g
+bytes_g          : "goose" [Type: sl_u8]
+    [<Raw View>]     [Type: sl_u8]
+    [len]            : 8 [Type: __int64]
+    [0x0]            : 103 [Type: int]
+    [0x1]            : 111 [Type: int]
+    [0x2]            : 111 [Type: int]
+    [0x3]            : 115 [Type: int]
+    [0x4]            : 101 [Type: int]
+    [0x5]            : 0 [Type: int]
+    [0x6]            : 1 [Type: int]
+    [0x7]            : 2 [Type: int]
+-- dx -r1 lit_g
+lit_g            : "hello, goose" [Type: sl_u8]
+    [<Raw View>]     [Type: sl_u8]
+    [len]            : 12 [Type: __int64]
+    [0x0]            : 104 [Type: int]
+    [0x1]            : 101 [Type: int]
+    [0x2]            : 108 [Type: int]
+    [0x3]            : 108 [Type: int]
+    [0x4]            : 111 [Type: int]
+    [0x5]            : 44 [Type: int]
+    [0x6]            : 32 [Type: int]
+    [0x7]            : 103 [Type: int]
+    [0x8]            : 111 [Type: int]
+    [0x9]            : 111 [Type: int]
+    [0xa]            : 115 [Type: int]
+    [0xb]            : 101 [Type: int]
+-- dx -r1 name_g
+name_g           : "" [Type: l16_u8]
+    [<Raw View>]     [Type: l16_u8]
+-- dx -r1 gs_globals_main
+gs_globals_main  : globals { buf: "goose" } [Type: gs_globals_t]
+    [<Raw View>]     [Type: gs_globals_t]
+    buf              : "goose" [Type: a8_u8]
+-- !goose_locals
+fixed: i32[4] = [1, 2, 3, 4]
+grow: i64[>..] = [10, 20, 30, 40, 50]
+view: i64[:] = [20, 30, 40]
+bytes: u8[:] = "goose\x00\x01\x02"
+lit: const u8[:] = "hello, goose"
+name: u8[..16] = ""
+-- !goose_globals
+buf: u8[8] = "goose\x00\x01\x02"
+@@ arrays.goose:14 main_g
+-- dx -r1 fixed_g
+fixed_g          : [1, 2, 3, 4] [Type: a4_i32]
+    [<Raw View>]     [Type: a4_i32]
+    [0]              : 1 [Type: int]
+    [1]              : 2 [Type: int]
+    [2]              : 3 [Type: int]
+    [3]              : 4 [Type: int]
+-- dx -r1 grow_g
+grow_g           : len=5 [Type: gs_rhdr]
+    [<Raw View>]     [Type: gs_rhdr]
+    [len]            : 5 [Type: __int64]
+    [base]           : 0x_ : 0xa [Type: unsigned char *]
+    [as u8 text]     : "."
+    [as i64]         : [10, 20, 30, 40, 50]
+    [as i32]         : [10, 0, 20, 0, 30]
+    [as f64]         : [0.000000, 0.000000, 0.000000, 0.000000, 0.000000]
+-- dx -r1 view_g
+view_g           : [20, 30, 40] [Type: sl_i64]
+    [<Raw View>]     [Type: sl_i64]
+    [len]            : 3 [Type: __int64]
+    [0]              : 20 [Type: __int64]
+    [1]              : 30 [Type: __int64]
+    [2]              : 40 [Type: __int64]
+-- dx -r1 bytes_g
+bytes_g          : "goose" [Type: sl_u8]
+    [<Raw View>]     [Type: sl_u8]
+    [len]            : 8 [Type: __int64]
+    [0x0]            : 103 [Type: int]
+    [0x1]            : 111 [Type: int]
+    [0x2]            : 111 [Type: int]
+    [0x3]            : 115 [Type: int]
+    [0x4]            : 101 [Type: int]
+    [0x5]            : 0 [Type: int]
+    [0x6]            : 1 [Type: int]
+    [0x7]            : 2 [Type: int]
+-- dx -r1 lit_g
+lit_g            : "hello, goose" [Type: sl_u8]
+    [<Raw View>]     [Type: sl_u8]
+    [len]            : 12 [Type: __int64]
+    [0x0]            : 104 [Type: int]
+    [0x1]            : 101 [Type: int]
+    [0x2]            : 108 [Type: int]
+    [0x3]            : 108 [Type: int]
+    [0x4]            : 111 [Type: int]
+    [0x5]            : 44 [Type: int]
+    [0x6]            : 32 [Type: int]
+    [0x7]            : 103 [Type: int]
+    [0x8]            : 111 [Type: int]
+    [0x9]            : 111 [Type: int]
+    [0xa]            : 115 [Type: int]
+    [0xb]            : 101 [Type: int]
+-- dx -r1 name_g
+name_g           : "ada" [Type: l16_u8]
+    [<Raw View>]     [Type: l16_u8]
+    [0x0]            : 97 [Type: int]
+    [0x1]            : 100 [Type: int]
+    [0x2]            : 97 [Type: int]
+-- dx -r1 frozen_g
+frozen_g         : 0x_ : 0x3 [Type: unsigned char *]
+    0x3 [Type: unsigned char]
+-- dx -r1 n_g
+n_g              : 26 [Type: __int64]
+-- dx -r1 gs_globals_main
+gs_globals_main  : globals { buf: "goose" } [Type: gs_globals_t]
+    [<Raw View>]     [Type: gs_globals_t]
+    buf              : "goose" [Type: a8_u8]
+-- !goose_locals
+fixed: i32[4] = [1, 2, 3, 4]
+grow: i64[>..] = [10, 20, 30, 40, 50]
+view: i64[:] = [20, 30, 40]
+bytes: u8[:] = "goose\x00\x01\x02"
+lit: const u8[:] = "hello, goose"
+name: u8[..16] = "ada"
+frozen: i64[] = [7, 8, 9]
+n: i64 = 26
+-- !goose_globals
+buf: u8[8] = "goose\x00\x01\x02"

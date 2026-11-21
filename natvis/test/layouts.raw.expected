@@ -1,0 +1,32 @@
+@@ layouts.goose:25 main_g
+-- dx -r1 second_g
+second_g         : 0x_ [Type: PNode_g *]
+    [+0x000] v_g              : 2 [Type: __int64]
+    [+0x008] next_g           : 0x1 [Type: unsigned int]
+-- dx -r1 sized_g
+sized_g          : 0x_ : 0x8 [Type: unsigned char *]
+    0x8 [Type: unsigned char]
+-- dx -r1 short_g
+short_g          : 0x_ : 0x2 [Type: unsigned char *]
+    0x2 [Type: unsigned char]
+-- dx -r1 c_g
+c_g              : 0x_ : 0x0 [Type: unsigned char *]
+    0x0 [Type: unsigned char]
+-- dx -r1 fs_g
+fs_g             [Type: a4_Shape_g]
+    [+0x000] e                [Type: Shape_g [4]]
+-- dx -r1 r_g
+r_g              : 0x_ : 0xa [Type: unsigned char *]
+    0xa [Type: unsigned char]
+-- dx -r1 count_g
+count_g          : 1 [Type: __int64]
+-- dx -r1 cur_g
+cur_g            [Type: Cursor_g]
+    [+0x000] line_g           : 0x_ : 1 [Type: __int64 *]
+    [+0x008] flag_g           : 0x1 [Type: unsigned char]
+-- dx -r1 gs_globals_main
+gs_globals_main  [Type: gs_globals_t]
+    [+0x000] pool_g           [Type: gs_rhdr]
+    [+0x010] gs_gstk_pool_g   [Type: gs_stack]
+    [+0x018] log_g            [Type: gs_rhdr]
+    [+0x028] gs_gstk_log_g    [Type: gs_stack]

@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Written by goose-debugger natvis/gen_natvis.py. -->
+<AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
+  <!-- T[>..] and T[>..<]: the element type is not in the C type. goose.js decodes a local from the debug map; the [as ...] views are guesses. -->
+  <Type Name="gs_rhdr">
+    <DisplayString Condition="len &lt; 0 || len &gt; 1099511627776">&lt;invalid len={len}&gt;</DisplayString>
+    <DisplayString>len={len}</DisplayString>
+    <Expand>
+      <Item Name="[len]">len</Item>
+      <Item Name="[base]">base</Item>
+      <Synthetic Name="[as u8 text]" Condition="len &gt; 0 &amp;&amp; len &lt;= 1099511627776">
+        <DisplayString>{base,[len]s8}</DisplayString>
+      </Synthetic>
+      <Synthetic Name="[as i64]" Condition="len &gt; 0 &amp;&amp; len &lt;= 1099511627776">
+        <DisplayString Condition="len &lt; 0 || len &gt; 1099511627776">&lt;invalid len={len}&gt;</DisplayString>
+        <DisplayString Condition="len == 0">[]</DisplayString>
+        <DisplayString Condition="len == 1">[{((__int64*)base)[0]}]</DisplayString>
+        <DisplayString Condition="len == 2">[{((__int64*)base)[0]}, {((__int64*)base)[1]}]</DisplayString>
+        <DisplayString Condition="len == 3">[{((__int64*)base)[0]}, {((__int64*)base)[1]}, {((__int64*)base)[2]}]</DisplayString>
+        <DisplayString Condition="len == 4">[{((__int64*)base)[0]}, {((__int64*)base)[1]}, {((__int64*)base)[2]}, {((__int64*)base)[3]}]</DisplayString>
+        <DisplayString Condition="len == 5">[{((__int64*)base)[0]}, {((__int64*)base)[1]}, {((__int64*)base)[2]}, {((__int64*)base)[3]}, {((__int64*)base)[4]}]</DisplayString>
+        <DisplayString Condition="len == 6">[{((__int64*)base)[0]}, {((__int64*)base)[1]}, {((__int64*)base)[2]}, {((__int64*)base)[3]}, {((__int64*)base)[4]}, {((__int64*)base)[5]}]</DisplayString>
+        <DisplayString Condition="len == 7">[{((__int64*)base)[0]}, {((__int64*)base)[1]}, {((__int64*)base)[2]}, {((__int64*)base)[3]}, {((__int64*)base)[4]}, {((__int64*)base)[5]}, {((__int64*)base)[6]}]</DisplayString>
+        <DisplayString Condition="len == 8">[{((__int64*)base)[0]}, {((__int64*)base)[1]}, {((__int64*)base)[2]}, {((__int64*)base)[3]}, {((__int64*)base)[4]}, {((__int64*)base)[5]}, {((__int64*)base)[6]}, {((__int64*)base)[7]}]</DisplayString>
+        <DisplayString>[{((__int64*)base)[0]}, {((__int64*)base)[1]}, {((__int64*)base)[2]}, {((__int64*)base)[3]}, {((__int64*)base)[4]}, {((__int64*)base)[5]}, {((__int64*)base)[6]}, {((__int64*)base)[7]}, ...] ({len} elements)</DisplayString>
+        <Expand>
+          <ArrayItems>
+            <Size>len</Size>
+            <ValuePointer>(__int64*)base</ValuePointer>
+          </ArrayItems>
+        </Expand>
+      </Synthetic>
+      <Synthetic Name="[as i32]" Condition="len &gt; 0 &amp;&amp; len &lt;= 1099511627776">
+        <DisplayString Condition="len &lt; 0 || len &gt; 1099511627776">&lt;invalid len={len}&gt;</DisplayString>
+        <DisplayString Condition="len == 0">[]</DisplayString>
+        <DisplayString Condition="len == 1">[{((int*)base)[0]}]</DisplayString>
+        <DisplayString Condition="len == 2">[{((int*)base)[0]}, {((int*)base)[1]}]</DisplayString>
+        <DisplayString Condition="len == 3">[{((int*)base)[0]}, {((int*)base)[1]}, {((int*)base)[2]}]</DisplayString>
+        <DisplayString Condition="len == 4">[{((int*)base)[0]}, {((int*)base)[1]}, {((int*)base)[2]}, {((int*)base)[3]}]</DisplayString>
+        <DisplayString Condition="len == 5">[{((int*)base)[0]}, {((int*)base)[1]}, {((int*)base)[2]}, {((int*)base)[3]}, {((int*)base)[4]}]</DisplayString>
+        <DisplayString Condition="len == 6">[{((int*)base)[0]}, {((int*)base)[1]}, {((int*)base)[2]}, {((int*)base)[3]}, {((int*)base)[4]}, {((int*)base)[5]}]</DisplayString>
+        <DisplayString Condition="len == 7">[{((int*)base)[0]}, {((int*)base)[1]}, {((int*)base)[2]}, {((int*)base)[3]}, {((int*)base)[4]}, {((int*)base)[5]}, {((int*)base)[6]}]</DisplayString>
+        <DisplayString Condition="len == 8">[{((int*)base)[0]}, {((int*)base)[1]}, {((int*)base)[2]}, {((int*)base)[3]}, {((int*)base)[4]}, {((int*)base)[5]}, {((int*)base)[6]}, {((int*)base)[7]}]</DisplayString>
+        <DisplayString>[{((int*)base)[0]}, {((int*)base)[1]}, {((int*)base)[2]}, {((int*)base)[3]}, {((int*)base)[4]}, {((int*)base)[5]}, {((int*)base)[6]}, {((int*)base)[7]}, ...] ({len} elements)</DisplayString>
+        <Expand>
+          <ArrayItems>
+            <Size>len</Size>
+            <ValuePointer>(int*)base</ValuePointer>
+          </ArrayItems>
+        </Expand>
+      </Synthetic>
+      <Synthetic Name="[as f64]" Condition="len &gt; 0 &amp;&amp; len &lt;= 1099511627776">
+        <DisplayString Condition="len &lt; 0 || len &gt; 1099511627776">&lt;invalid len={len}&gt;</DisplayString>
+        <DisplayString Condition="len == 0">[]</DisplayString>
+        <DisplayString Condition="len == 1">[{((double*)base)[0]}]</DisplayString>
+        <DisplayString Condition="len == 2">[{((double*)base)[0]}, {((double*)base)[1]}]</DisplayString>
+        <DisplayString Condition="len == 3">[{((double*)base)[0]}, {((double*)base)[1]}, {((double*)base)[2]}]</DisplayString>
+        <DisplayString Condition="len == 4">[{((double*)base)[0]}, {((double*)base)[1]}, {((double*)base)[2]}, {((double*)base)[3]}]</DisplayString>
+        <DisplayString Condition="len == 5">[{((double*)base)[0]}, {((double*)base)[1]}, {((double*)base)[2]}, {((double*)base)[3]}, {((double*)base)[4]}]</DisplayString>
+        <DisplayString Condition="len == 6">[{((double*)base)[0]}, {((double*)base)[1]}, {((double*)base)[2]}, {((double*)base)[3]}, {((double*)base)[4]}, {((double*)base)[5]}]</DisplayString>
+        <DisplayString Condition="len == 7">[{((double*)base)[0]}, {((double*)base)[1]}, {((double*)base)[2]}, {((double*)base)[3]}, {((double*)base)[4]}, {((double*)base)[5]}, {((double*)base)[6]}]</DisplayString>
+        <DisplayString Condition="len == 8">[{((double*)base)[0]}, {((double*)base)[1]}, {((double*)base)[2]}, {((double*)base)[3]}, {((double*)base)[4]}, {((double*)base)[5]}, {((double*)base)[6]}, {((double*)base)[7]}]</DisplayString>
+        <DisplayString>[{((double*)base)[0]}, {((double*)base)[1]}, {((double*)base)[2]}, {((double*)base)[3]}, {((double*)base)[4]}, {((double*)base)[5]}, {((double*)base)[6]}, {((double*)base)[7]}, ...] ({len} elements)</DisplayString>
+        <Expand>
+          <ArrayItems>
+            <Size>len</Size>
+            <ValuePointer>(double*)base</ValuePointer>
+          </ArrayItems>
+        </Expand>
+      </Synthetic>
+    </Expand>
+  </Type>
+  <!-- a resizable passed by reference: its header -->
+  <Type Name="gs_rref">
+    <DisplayString Condition="hdr == 0">null</DisplayString>
+    <DisplayString>{*hdr}</DisplayString>
+    <Expand>
+      <ExpandedItem Condition="hdr != 0">*hdr</ExpandedItem>
+    </Expand>
+  </Type>
+  <Type Name="gs_pref">
+    <DisplayString Condition="hdr == 0">null</DisplayString>
+    <DisplayString>{*hdr}</DisplayString>
+    <Expand>
+      <ExpandedItem Condition="hdr != 0">*hdr</ExpandedItem>
+    </Expand>
+  </Type>
+  <Type Name="sl_u8">
+    <DisplayString Condition="len &lt; 0 || len &gt; 1099511627776">&lt;invalid len={len}&gt;</DisplayString>
+    <DisplayString>{data,[len]s8}</DisplayString>
+    <Expand>
+      <Item Name="[len]">len</Item>
+      <IndexListItems Condition="len &gt;= 0 &amp;&amp; len &lt;= 1099511627776">
+        <Size>len</Size>
+        <ValueNode>(int)data[$i]</ValueNode>
+      </IndexListItems>
+    </Expand>
+  </Type>
+  <Type Name="sl_i8">
+    <DisplayString Condition="len &lt; 0 || len &gt; 1099511627776">&lt;invalid len={len}&gt;</DisplayString>
+    <DisplayString Condition="len == 0">[]</DisplayString>
+    <DisplayString Condition="len == 1">[{data[0],d}]</DisplayString>
+    <DisplayString Condition="len == 2">[{data[0],d}, {data[1],d}]</DisplayString>
+    <DisplayString Condition="len == 3">[{data[0],d}, {data[1],d}, {data[2],d}]</DisplayString>
+    <DisplayString Condition="len == 4">[{data[0],d}, {data[1],d}, {data[2],d}, {data[3],d}]</DisplayString>
+    <DisplayString Condition="len == 5">[{data[0],d}, {data[1],d}, {data[2],d}, {data[3],d}, {data[4],d}]</DisplayString>
+    <DisplayString Condition="len == 6">[{data[0],d}, {data[1],d}, {data[2],d}, {data[3],d}, {data[4],d}, {data[5],d}]</DisplayString>
+    <DisplayString Condition="len == 7">[{data[0],d}, {data[1],d}, {data[2],d}, {data[3],d}, {data[4],d}, {data[5],d}, {data[6],d}]</DisplayString>
+    <DisplayString Condition="len == 8">[{data[0],d}, {data[1],d}, {data[2],d}, {data[3],d}, {data[4],d}, {data[5],d}, {data[6],d}, {data[7],d}]</DisplayString>
+    <DisplayString>[{data[0],d}, {data[1],d}, {data[2],d}, {data[3],d}, {data[4],d}, {data[5],d}, {data[6],d}, {data[7],d}, ...] ({len} elements)</DisplayString>
+    <Expand>
+      <Item Name="[len]">len</Item>
+      <IndexListItems Condition="len &gt;= 0 &amp;&amp; len &lt;= 1099511627776">
+        <Size>len</Size>
+        <ValueNode>(int)data[$i]</ValueNode>
+      </IndexListItems>
+    </Expand>
+  </Type>
+  <Type Name="sl_u16">
+    <DisplayString Condition="len &lt; 0 || len &gt; 1099511627776">&lt;invalid len={len}&gt;</DisplayString>
+    <DisplayString Condition="len == 0">[]</DisplayString>
+    <DisplayString Condition="len == 1">[{data[0]}]</DisplayString>
+    <DisplayString Condition="len == 2">[{data[0]}, {data[1]}]</DisplayString>
+    <DisplayString Condition="len == 3">[{data[0]}, {data[1]}, {data[2]}]</DisplayString>
+    <DisplayString Condition="len == 4">[{data[0]}, {data[1]}, {data[2]}, {data[3]}]</DisplayString>
+    <DisplayString Condition="len == 5">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}]</DisplayString>
+    <DisplayString Condition="len == 6">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}]</DisplayString>
+    <DisplayString Condition="len == 7">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}]</DisplayString>
+    <DisplayString Condition="len == 8">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}, {data[7]}]</DisplayString>
+    <DisplayString>[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}, {data[7]}, ...] ({len} elements)</DisplayString>
+    <Expand>
+      <Item Name="[len]">len</Item>
+      <ArrayItems Condition="len &gt;= 0 &amp;&amp; len &lt;= 1099511627776">
+        <Size>len</Size>
+        <ValuePointer>data</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+  <Type Name="sl_i16">
+    <DisplayString Condition="len &lt; 0 || len &gt; 1099511627776">&lt;invalid len={len}&gt;</DisplayString>
+    <DisplayString Condition="len == 0">[]</DisplayString>
+    <DisplayString Condition="len == 1">[{data[0]}]</DisplayString>
+    <DisplayString Condition="len == 2">[{data[0]}, {data[1]}]</DisplayString>
+    <DisplayString Condition="len == 3">[{data[0]}, {data[1]}, {data[2]}]</DisplayString>
+    <DisplayString Condition="len == 4">[{data[0]}, {data[1]}, {data[2]}, {data[3]}]</DisplayString>
+    <DisplayString Condition="len == 5">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}]</DisplayString>
+    <DisplayString Condition="len == 6">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}]</DisplayString>
+    <DisplayString Condition="len == 7">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}]</DisplayString>
+    <DisplayString Condition="len == 8">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}, {data[7]}]</DisplayString>
+    <DisplayString>[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}, {data[7]}, ...] ({len} elements)</DisplayString>
+    <Expand>
+      <Item Name="[len]">len</Item>
+      <ArrayItems Condition="len &gt;= 0 &amp;&amp; len &lt;= 1099511627776">
+        <Size>len</Size>
+        <ValuePointer>data</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+  <Type Name="sl_u32">
+    <DisplayString Condition="len &lt; 0 || len &gt; 1099511627776">&lt;invalid len={len}&gt;</DisplayString>
+    <DisplayString Condition="len == 0">[]</DisplayString>
+    <DisplayString Condition="len == 1">[{data[0]}]</DisplayString>
+    <DisplayString Condition="len == 2">[{data[0]}, {data[1]}]</DisplayString>
+    <DisplayString Condition="len == 3">[{data[0]}, {data[1]}, {data[2]}]</DisplayString>
+    <DisplayString Condition="len == 4">[{data[0]}, {data[1]}, {data[2]}, {data[3]}]</DisplayString>
+    <DisplayString Condition="len == 5">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}]</DisplayString>
+    <DisplayString Condition="len == 6">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}]</DisplayString>
+    <DisplayString Condition="len == 7">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}]</DisplayString>
+    <DisplayString Condition="len == 8">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}, {data[7]}]</DisplayString>
+    <DisplayString>[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}, {data[7]}, ...] ({len} elements)</DisplayString>
+    <Expand>
+      <Item Name="[len]">len</Item>
+      <ArrayItems Condition="len &gt;= 0 &amp;&amp; len &lt;= 1099511627776">
+        <Size>len</Size>
+        <ValuePointer>data</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+  <Type Name="sl_i32">
+    <DisplayString Condition="len &lt; 0 || len &gt; 1099511627776">&lt;invalid len={len}&gt;</DisplayString>
+    <DisplayString Condition="len == 0">[]</DisplayString>
+    <DisplayString Condition="len == 1">[{data[0]}]</DisplayString>
+    <DisplayString Condition="len == 2">[{data[0]}, {data[1]}]</DisplayString>
+    <DisplayString Condition="len == 3">[{data[0]}, {data[1]}, {data[2]}]</DisplayString>
+    <DisplayString Condition="len == 4">[{data[0]}, {data[1]}, {data[2]}, {data[3]}]</DisplayString>
+    <DisplayString Condition="len == 5">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}]</DisplayString>
+    <DisplayString Condition="len == 6">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}]</DisplayString>
+    <DisplayString Condition="len == 7">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}]</DisplayString>
+    <DisplayString Condition="len == 8">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}, {data[7]}]</DisplayString>
+    <DisplayString>[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}, {data[7]}, ...] ({len} elements)</DisplayString>
+    <Expand>
+      <Item Name="[len]">len</Item>
+      <ArrayItems Condition="len &gt;= 0 &amp;&amp; len &lt;= 1099511627776">
+        <Size>len</Size>
+        <ValuePointer>data</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+  <Type Name="sl_u64">
+    <DisplayString Condition="len &lt; 0 || len &gt; 1099511627776">&lt;invalid len={len}&gt;</DisplayString>
+    <DisplayString Condition="len == 0">[]</DisplayString>
+    <DisplayString Condition="len == 1">[{data[0]}]</DisplayString>
+    <DisplayString Condition="len == 2">[{data[0]}, {data[1]}]</DisplayString>
+    <DisplayString Condition="len == 3">[{data[0]}, {data[1]}, {data[2]}]</DisplayString>
+    <DisplayString Condition="len == 4">[{data[0]}, {data[1]}, {data[2]}, {data[3]}]</DisplayString>
+    <DisplayString Condition="len == 5">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}]</DisplayString>
+    <DisplayString Condition="len == 6">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}]</DisplayString>
+    <DisplayString Condition="len == 7">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}]</DisplayString>
+    <DisplayString Condition="len == 8">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}, {data[7]}]</DisplayString>
+    <DisplayString>[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}, {data[7]}, ...] ({len} elements)</DisplayString>
+    <Expand>
+      <Item Name="[len]">len</Item>
+      <ArrayItems Condition="len &gt;= 0 &amp;&amp; len &lt;= 1099511627776">
+        <Size>len</Size>
+        <ValuePointer>data</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+  <Type Name="sl_i64">
+    <DisplayString Condition="len &lt; 0 || len &gt; 1099511627776">&lt;invalid len={len}&gt;</DisplayString>
+    <DisplayString Condition="len == 0">[]</DisplayString>
+    <DisplayString Condition="len == 1">[{data[0]}]</DisplayString>
+    <DisplayString Condition="len == 2">[{data[0]}, {data[1]}]</DisplayString>
+    <DisplayString Condition="len == 3">[{data[0]}, {data[1]}, {data[2]}]</DisplayString>
+    <DisplayString Condition="len == 4">[{data[0]}, {data[1]}, {data[2]}, {data[3]}]</DisplayString>
+    <DisplayString Condition="len == 5">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}]</DisplayString>
+    <DisplayString Condition="len == 6">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}]</DisplayString>
+    <DisplayString Condition="len == 7">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}]</DisplayString>
+    <DisplayString Condition="len == 8">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}, {data[7]}]</DisplayString>
+    <DisplayString>[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}, {data[7]}, ...] ({len} elements)</DisplayString>
+    <Expand>
+      <Item Name="[len]">len</Item>
+      <ArrayItems Condition="len &gt;= 0 &amp;&amp; len &lt;= 1099511627776">
+        <Size>len</Size>
+        <ValuePointer>data</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+  <Type Name="sl_f32">
+    <DisplayString Condition="len &lt; 0 || len &gt; 1099511627776">&lt;invalid len={len}&gt;</DisplayString>
+    <DisplayString Condition="len == 0">[]</DisplayString>
+    <DisplayString Condition="len == 1">[{data[0]}]</DisplayString>
+    <DisplayString Condition="len == 2">[{data[0]}, {data[1]}]</DisplayString>
+    <DisplayString Condition="len == 3">[{data[0]}, {data[1]}, {data[2]}]</DisplayString>
+    <DisplayString Condition="len == 4">[{data[0]}, {data[1]}, {data[2]}, {data[3]}]</DisplayString>
+    <DisplayString Condition="len == 5">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}]</DisplayString>
+    <DisplayString Condition="len == 6">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}]</DisplayString>
+    <DisplayString Condition="len == 7">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}]</DisplayString>
+    <DisplayString Condition="len == 8">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}, {data[7]}]</DisplayString>
+    <DisplayString>[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}, {data[7]}, ...] ({len} elements)</DisplayString>
+    <Expand>
+      <Item Name="[len]">len</Item>
+      <ArrayItems Condition="len &gt;= 0 &amp;&amp; len &lt;= 1099511627776">
+        <Size>len</Size>
+        <ValuePointer>data</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+  <Type Name="sl_f64">
+    <DisplayString Condition="len &lt; 0 || len &gt; 1099511627776">&lt;invalid len={len}&gt;</DisplayString>
+    <DisplayString Condition="len == 0">[]</DisplayString>
+    <DisplayString Condition="len == 1">[{data[0]}]</DisplayString>
+    <DisplayString Condition="len == 2">[{data[0]}, {data[1]}]</DisplayString>
+    <DisplayString Condition="len == 3">[{data[0]}, {data[1]}, {data[2]}]</DisplayString>
+    <DisplayString Condition="len == 4">[{data[0]}, {data[1]}, {data[2]}, {data[3]}]</DisplayString>
+    <DisplayString Condition="len == 5">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}]</DisplayString>
+    <DisplayString Condition="len == 6">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}]</DisplayString>
+    <DisplayString Condition="len == 7">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}]</DisplayString>
+    <DisplayString Condition="len == 8">[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}, {data[7]}]</DisplayString>
+    <DisplayString>[{data[0]}, {data[1]}, {data[2]}, {data[3]}, {data[4]}, {data[5]}, {data[6]}, {data[7]}, ...] ({len} elements)</DisplayString>
+    <Expand>
+      <Item Name="[len]">len</Item>
+      <ArrayItems Condition="len &gt;= 0 &amp;&amp; len &lt;= 1099511627776">
+        <Size>len</Size>
+        <ValuePointer>data</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+</AutoVisualizer>

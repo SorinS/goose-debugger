@@ -1,0 +1,340 @@
+diff -ruN a/src/build.h b/src/build.h
+--- a/src/build.h	2026-11-21 23:12:38.146994403 +0000
++++ b/src/build.h	2026-11-21 23:15:18.378528151 +0000
+@@ -19,6 +19,7 @@
+     bool standalone = false;  // --standalone: no runtime object
+     bool shared = false;      // --shared: build a self-contained shared library
+     string exe;               // -o: the executable/library; "" puts it beside the root source
++    string natvis;            // -g: the program's natvis, which an MSVC link embeds in the PDB
+ };
+ 
+ inline string AbsolutePath(const string &path) {
+@@ -164,6 +165,12 @@
+             argv.push_back(src);
+             for (auto &o : objects) argv.push_back(o);
+             for (auto &r : rsps) argv.push_back(cat("@", r));
++            // Last: what follows /link is the linker's. /NATVIS puts the
++            // file in the PDB, where the debuggers find it.
++            if (opts.debug && !opts.natvis.empty() && PathExists(opts.natvis)) {
++                argv.push_back("/link");
++                argv.push_back(cat("/NATVIS:", opts.natvis));
++            }
+         } else {
+             if (opts.shared) {
+                 // Not on Windows, where clang rejects the flag for its
+diff -ruN a/src/main.cpp b/src/main.cpp
+--- a/src/main.cpp	2026-11-21 23:12:38.147329115 +0000
++++ b/src/main.cpp	2026-11-21 23:15:18.378045939 +0000
+@@ -46,6 +46,7 @@
+ #include "buildfile.h"
+ #include "json.h"
+ #include "codegen_debugmap.h"
++#include "natvis.h"
+ #include "toolchain.h"
+ #include "builtin.h"
+ #include "build.h"
+@@ -1832,8 +1833,15 @@
+                 auto mapfile = outfile.size() > 2 && outfile.compare(outfile.size() - 2, 2, ".c") == 0
+                                    ? outfile.substr(0, outfile.size() - 2) : outfile;
+                 mapfile += ".debug.json";
+-                if (!WriteFileMakingDirs(mapfile, cg.DebugMap()))
++                auto mapjson = cg.DebugMap();
++                if (!WriteFileMakingDirs(mapfile, mapjson))
+                     throw CompileError { cat("cannot write output file: ", mapfile) };
++                // And the natvis that an MSVC link embeds in the PDB (build.h),
++                // which Visual Studio, VS Code's cppvsdbg and WinDbg load
++                // from there with nothing to configure (natvis.h).
++                auto nvfile = mapfile.substr(0, mapfile.size() - 11) + ".natvis";
++                if (!WriteFileMakingDirs(nvfile, Natvis(mapjson, out)))
++                    throw CompileError { cat("cannot write output file: ", nvfile) };
+             }
+             if (stats) fprintf(msgs, "wrote %s (%d bytes)\n", outfile.c_str(), (int)out.size());
+         }
+@@ -1923,6 +1931,7 @@
+                     if (!BuildNativePart(*astp, pkg, filename, b, false, nb)) return 1;
+                     rsps.push_back(nb.rsp);
+                 }
++                if (debuginfo) buildopts.natvis = cat(builddir, "/", PathStem(file), ".natvis");
+                 return BuildExecutable(filename, outfile, builddir, tc, buildopts, msgs, rsps,
+                                        astp->packages[0].output);
+             }
+diff -ruN a/src/natvis.h b/src/natvis.h
+--- a/src/natvis.h	1970-01-01 01:00:00.000000000 +0100
++++ b/src/natvis.h	2026-11-21 23:14:00.676298337 +0000
+@@ -0,0 +1,276 @@
++// Goose compiler — natvis for -g with MSVC: the debug map (codegen_debugmap.h)
++// turned into the Visual Studio / WinDbg type visualizers that the linker's
++// /NATVIS: embeds in the PDB, so that a debugger shows Goose values with
++// nothing to load. A C++ port of goose-debugger's natvis/gen_natvis.py --all,
++// smaller: a struct's summary shows a nullable field as its address (the
++// script writes one summary per combination of null and non-null), and
++// there are no shallow views. Natvis matches exact C type names only, so
++// the array and slice types come from the C's own typedefs. Included after
++// json.h, whose ParseJson it reads the map with.
++#pragma once
++
++namespace goose {
++
++namespace natvis {
++
++inline string Xml(string_view s) {
++    string o;
++    for (auto c : s) {
++        if (c == '<') o += "&lt;";
++        else if (c == '>') o += "&gt;";
++        else if (c == '&') o += "&amp;";
++        else if (c == '"') o += "&quot;";
++        else o += c;
++    }
++    return o;
++}
++
++// The C type the debugger evaluates a Goose scalar as.
++inline string ScalarC(const string &t) {
++    static const pair<const char *, const char *> m[] = {
++        { "i8", "signed char" }, { "u8", "unsigned char" }, { "bool", "unsigned char" },
++        { "i16", "short" }, { "u16", "unsigned short" }, { "i32", "int" },
++        { "u32", "unsigned int" }, { "i64", "__int64" }, { "u64", "unsigned __int64" },
++        { "f32", "float" }, { "f64", "double" } };
++    for (auto &[g, c] : m) if (t == g) return c;
++    return "";
++}
++
++inline bool IsByte(const string &c) {
++    return c == "uint8_t" || c == "int8_t" || c == "gs_u8" || c == "gs_i8" ||
++           c == "unsigned char" || c == "signed char";
++}
++
++const int kInline = 8;
++const char *const kBadLen = "len &lt; 0 || len &gt; 1099511627776";
++
++struct Writer {
++    string out;
++    set<string> done;
++    map<string, string> cnames;   // Goose type name -> C name, from the map
++
++    bool Open(const string &cname, const string &comment = "") {
++        if (!done.insert(cname).second) return false;
++        if (!comment.empty()) Append(out, "  <!-- ", Xml(comment), " -->\n");
++        Append(out, "  <Type Name=\"", cname, "\">\n");
++        return true;
++    }
++    void Close() { out += "  </Type>\n"; }
++    void Display(const string &text, const string &cond = "") {
++        out += "    <DisplayString";
++        if (!cond.empty()) Append(out, " Condition=\"", cond, "\"");
++        Append(out, ">", text, "</DisplayString>\n");
++    }
++
++    // [a, b, c] for the first kInline of ptr[0..len), one summary per length.
++    void ListSummaries(const string &ptr, const string &len, bool bytes, int fixed = -1) {
++        auto items = [&](int k) {
++            string s;
++            for (int i = 0; i < k; i++) Append(s, i ? ", " : "", "{", ptr, "[", i, "]", bytes ? ",d" : "", "}");
++            return s;
++        };
++        if (fixed >= 0) {
++            auto k = std::min(fixed, kInline);
++            Display(cat("[", items(k), fixed > k ? cat(", ...] (", fixed, " elements)") : string("]")));
++            return;
++        }
++        Display("&lt;invalid len={len}&gt;", kBadLen);
++        for (int k = 0; k <= kInline; k++) Display(cat("[", items(k), "]"), cat(len, " == ", k));
++        Display(cat("[", items(kInline), ", ...] ({", len, "} elements)"));
++    }
++    void Children(const string &ptr, const string &len, bool bytes) {
++        if (bytes)   // dx ignores a format specifier in a ValueNode: a cast shows decimal.
++            Append(out, "      <IndexListItems><Size>", len, "</Size><ValueNode>(int)", ptr,
++                   "[$i]</ValueNode></IndexListItems>\n");
++        else
++            Append(out, "      <ArrayItems><Size>", len, "</Size><ValuePointer>", ptr,
++                   "</ValuePointer></ArrayItems>\n");
++    }
++
++    // An array type the C declares: sl_T, aN_T or lN_T, with its element's C type.
++    void Array(const string &name, char kind, const string &elem, int n) {
++        if (!Open(name)) return;
++        auto text = name.size() > 3 && name.compare(name.size() - 3, 3, "_u8") == 0;
++        auto ptr = kind == 's' ? string("data") : string("e");
++        auto len = kind == 'a' ? cat(n) : string("len");
++        if (text) {
++            if (kind != 'a') Display("&lt;invalid len={len}&gt;", kBadLen);
++            Display(cat("{", ptr, ",[", len, "]s8}"));
++        } else {
++            ListSummaries(ptr, len, IsByte(elem), kind == 'a' ? n : -1);
++        }
++        out += "    <Expand>\n";
++        if (kind == 's') out += "      <Item Name=\"[len]\">len</Item>\n";
++        Children(ptr, len, IsByte(elem) || text);
++        out += "    </Expand>\n";
++        Close();
++    }
++
++    void Generic() {
++        if (Open("gs_rhdr", "T[>..]: the element type is not in the C type")) {
++            Display("&lt;invalid len={len}&gt;", kBadLen);
++            Display("len={len}");
++            out += "    <Expand><Item Name=\"[len]\">len</Item><Item Name=\"[base]\">base</Item></Expand>\n";
++            Close();
++        }
++        if (Open("gs_rref", "a resizable passed by reference")) {
++            Display("null", "hdr == 0");
++            Display("{*hdr}");
++            out += "    <Expand><ExpandedItem Condition=\"hdr != 0\">*hdr</ExpandedItem></Expand>\n";
++            Close();
++        }
++    }
++
++    // One field at `prefix`: its summary text and its child, the Goose
++    // type deciding how (the C type cannot tell bool from u8, T& from T?).
++    // A resizable field, whose struct names its element type, gets a
++    // synthetic child listing the elements.
++    void Field(const Json &f, const string &prefix, const string &cond, string &summary, string &kids) {
++        auto c = prefix + f.Str("c"), name = Xml(f.Str("name")), t = f.Str("type");
++        if (t.compare(0, 6, "const ") == 0) t = t.substr(6);
++        auto when = cond.empty() ? string() : cat(" Condition=\"", cond, "\"");
++        auto item = [&](const string &expr, const string &extra = "") {
++            auto cnd = cond.empty() ? extra : extra.empty() ? cond : cat("(", cond, ") &amp;&amp; (", extra, ")");
++            Append(kids, "      <Item Name=\"", name, "\"", cnd.empty() ? "" : cat(" Condition=\"", cnd, "\""),
++                   ">", expr, "</Item>\n");
++        };
++        if (t == "bool") { Append(summary, "{(bool)", c, "}"); item(cat("(bool)", c)); return; }
++        if (t == "u8" || t == "i8") { Append(summary, "{", c, ",d}"); item(cat(c, ",d")); return; }
++        if (!ScalarC(t).empty()) { Append(summary, "{", c, "}"); item(c); return; }
++        auto ends = [&](const char *s) { auto n = strlen(s); return t.size() > n && t.compare(t.size() - n, n, s) == 0; };
++        if (ends("&")) { Append(summary, "{*", c, "}"); item(cat("*", c)); return; }
++        if (ends("?") && !ends(">?")) {
++            Append(summary, "{", c, "}");
++            item(c, cat(c, " == 0"));
++            item(cat("*", c), cat(c, " != 0"));
++            return;
++        }
++        if (ends("[>..]") || ends("[>..<]")) {
++            auto et = t.substr(0, t.rfind('['));
++            auto ec = ScalarC(et);
++            if (ec.empty() && cnames.count(et)) ec = cnames[et];
++            Append(summary, "len={", c, ".len}");
++            if (ec.empty()) { item(c); return; }
++            auto ptr = cat("((", ec, "*)", c, ".base)");
++            Append(kids, "      <Synthetic Name=\"", name, "\"", when, ">\n");
++            if (et == "u8") Append(kids, "        <DisplayString>{", ptr, ",[", c, ".len]s8}</DisplayString>\n");
++            else Append(kids, "        <DisplayString>len={", c, ".len}</DisplayString>\n");
++            Append(kids, "        <Expand>");
++            if (IsByte(ec))
++                Append(kids, "<IndexListItems><Size>", c, ".len</Size><ValueNode>(int)", ptr,
++                       "[$i]</ValueNode></IndexListItems>");
++            else
++                Append(kids, "<ArrayItems><Size>", c, ".len</Size><ValuePointer>", ptr,
++                       "</ValuePointer></ArrayItems>");
++            kids += "</Expand>\n      </Synthetic>\n";
++            return;
++        }
++        // A relative reference, a struct, an enum, an array: shown as
++        // itself (a relative one as its offset; the script decodes it).
++        Append(summary, "{", c, "}");
++        item(c);
++    }
++
++    string Fields(const vector<Json> &fs, const string &prefix, const string &cond, string &kids) {
++        string s;
++        for (size_t i = 0; i < fs.size(); i++) {
++            Append(s, i ? ", " : "", Xml(fs[i].Str("name")), ": ");
++            Field(fs[i], prefix, cond, s, kids);
++        }
++        return s;
++    }
++
++    void Struct(const string &cname, const string &head, const vector<Json> &fs, const string &comment) {
++        if (!Open(cname, comment)) return;
++        string kids;
++        auto body = Fields(fs, "", "", kids);
++        Display(fs.empty() ? head : cat(head, " {{ ", body, " }}"));
++        if (!kids.empty()) Append(out, "    <Expand>\n", kids, "    </Expand>\n");
++        Close();
++    }
++
++    void Enum(const Json &t, const set<string> &cstructs) {
++        auto cname = t.Str("c"), name = Xml(t.Str("name"));
++        if (!Open(cname, cat("enum ", t.Str("name")))) return;
++        string kids;
++        for (auto &v : t.Arr("variants")) {
++            auto vn = v.Str("name");
++            auto tag = v.Get("tag") ? (int)v.Get("tag")->num : 0;
++            auto cond = cat("tag == ", tag);
++            auto &fs = v.Arr("fields");
++            auto body = Fields(fs, cat("u.v_", vn, "_g."), cond, kids);
++            Display(fs.empty() ? cat(name, ".", vn) : cat(name, ".", vn, " {{ ", body, " }}"), cond);
++        }
++        Display(cat(name, " #{tag,d}"));
++        if (!kids.empty()) Append(out, "    <Expand>\n", kids, "    </Expand>\n");
++        Close();
++        for (auto &v : t.Arr("variants")) {
++            auto pc = cat(cname, "_", v.Str("name"), "_p");
++            if (!v.Arr("fields").empty() && cstructs.count(pc))
++                Struct(pc, cat(name, ".", Xml(v.Str("name"))), v.Arr("fields"),
++                       cat(t.Str("name"), ".", v.Str("name")));
++        }
++    }
++};
++
++}  // namespace natvis
++
++// The natvis for one program: the debug map's JSON (DebugMap()) and the
++// program's C, whose typedefs name its array and slice types.
++inline string Natvis(const string &mapjson, const string &ctext) {
++    natvis::Writer w;
++    auto m = ParseJson(mapjson);
++    for (auto &t : m.Arr("types"))
++        if (!t.Str("c").empty()) w.cnames[t.Str("name")] = t.Str("c");
++    // The structs the C defines, and its array typedefs:
++    //   typedef struct { T *data; int64_t len; } sl_X;
++    //   typedef struct { T e[N]; } aN_X;   typedef struct { uintK_t len; T e[N]; } lN_X;
++    set<string> cstructs;
++    vector<tuple<string, char, string, int>> arrays;
++    for (size_t p = 0; (p = ctext.find('\n', p)) != string::npos; p++) {
++        auto line = ctext.substr(p + 1, ctext.find('\n', p + 1) - p - 1);
++        if (line.compare(0, 7, "struct ") == 0 && line.size() > 2 && line.compare(line.size() - 2, 2, " {") == 0) {
++            cstructs.insert(line.substr(7, line.size() - 9));
++            continue;
++        }
++        if (line.compare(0, 17, "typedef struct { ") != 0) continue;
++        auto close = line.rfind(" } ");
++        if (close == string::npos || line.back() != ';') continue;
++        auto name = line.substr(close + 3, line.size() - close - 4);
++        auto body = line.substr(17, close - 17);
++        auto kind = name.compare(0, 3, "sl_") == 0 ? 's' : name[0] == 'a' && isdigit((unsigned char)name[1]) ? 'a'
++                  : name[0] == 'l' && isdigit((unsigned char)name[1]) ? 'l' : 0;
++        if (!kind) continue;
++        if (kind == 's') {
++            auto star = body.find(" *data;");
++            if (star != string::npos) arrays.emplace_back(name, kind, body.substr(0, star), 0);
++            continue;
++        }
++        if (kind == 'l') {
++            auto semi = body.find("; ");
++            if (semi == string::npos) continue;
++            body = body.substr(semi + 2);
++        }
++        auto e = body.find(" e[");
++        if (e == string::npos) continue;
++        arrays.emplace_back(name, kind, body.substr(0, e), atoi(body.c_str() + e + 3));
++    }
++    w.Generic();
++    sort(arrays.begin(), arrays.end());
++    for (auto &[name, kind, elem, n] : arrays) w.Array(name, kind, elem, n);
++    for (auto &t : m.Arr("types")) {
++        auto c = t.Str("c");
++        if (c.empty() || !cstructs.count(c)) continue;   // Variable size: no C type.
++        if (t.Str("kind") == "struct")
++            w.Struct(c, natvis::Xml(t.Str("name")), t.Arr("fields"), cat("struct ", t.Str("name")));
++        else
++            w.Enum(t, cstructs);
++    }
++    if (auto g = m.Get("globals"); g && !g->Arr("vars").empty())
++        w.Struct("gs_globals_t", "globals", g->Arr("vars"), "the globals: dx gs_globals_main");
++    return cat("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n",
++               "<AutoVisualizer xmlns=\"http://schemas.microsoft.com/vstudio/debugger/natvis/2010\">\n",
++               w.out, "</AutoVisualizer>\n");
++}
++
++}  // namespace goose

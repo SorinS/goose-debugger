@@ -1,0 +1,32 @@
+@@ structs.goose:24 main_g
+-- dx -r1 p_g
+p_g              [Type: Point_g]
+    [+0x000] x_g              : 3 [Type: int]
+    [+0x004] y_g              : -4 [Type: int]
+-- dx -r1 u_g
+u_g              [Type: Unit_g]
+    [+0x000] kind_g           : 0x1 [Type: unsigned char]
+    [+0x001] hp_g             : 99 [Type: int]
+    [+0x005] pos_g            [Type: Point_g]
+    [+0x00d] tag_g            [Type: l8_u8]
+-- dx -r1 c_g
+c_g              [Type: Color_g]
+    [+0x000] tag              : 0x1 [Type: unsigned char]
+-- dx -r1 circle_g
+circle_g         [Type: Shape_g_Circle_p]
+    [+0x000] r_g              : 1.500000 [Type: double]
+-- dx -r1 rect_g
+rect_g           [Type: Shape_g_Rect_p]
+    [+0x000] w_g              : 2.000000 [Type: double]
+    [+0x008] h_g              : 3.000000 [Type: double]
+-- dx -r1 dot_g
+dot_g            [Type: Shape_g]
+    [+0x000] tag              : 0x2 [Type: unsigned char]
+    [+0x001] u                [Type: <unnamed-tag>]
+-- dx -r1 label_g
+label_g          : 0x_ : 0x0 [Type: unsigned char *]
+    0x0 [Type: unsigned char]
+-- dx -r1 shapes_g
+shapes_g         [Type: gs_rhdr]
+    [+0x000] base             : 0x_ : 0x0 [Type: unsigned char *]
+    [+0x008] len              : 2 [Type: __int64]

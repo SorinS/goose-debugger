@@ -1,0 +1,66 @@
+@@ generics.goose:20 main_g
+-- dx -r1 p_g
+p_g              : Pair<i64> { a: 1, b: 2 } [Type: Pair_g_i64]
+    [<Raw View>]     [Type: Pair_g_i64]
+    a                : 1 [Type: __int64]
+    b                : 2 [Type: __int64]
+-- dx -r1 q_g
+q_g              : Pair<f64> { a: 0.500000, b: 1.500000 } [Type: Pair_g_f64]
+    [<Raw View>]     [Type: Pair_g_f64]
+    a                : 0.500000 [Type: double]
+    b                : 1.500000 [Type: double]
+-- dx -r1 s_g
+s_g              : Opt<i64>.Some { v: 9 } [Type: Opt_g_i64_Some_p]
+    [<Raw View>]     [Type: Opt_g_i64_Some_p]
+    v                : 9 [Type: __int64]
+-- dx -r1 o_g
+o_g              : Opt<i64>.Some { v: 9 } [Type: Opt_g_i64]
+    [<Raw View>]     [Type: Opt_g_i64]
+    v                : 9 [Type: __int64]
+-- dx -r1 e_g
+e_g              : Opt<i64>.None [Type: Opt_g_i64]
+    [<Raw View>]     [Type: Opt_g_i64]
+-- dx -r1 arr_g
+arr_g            : [4, 5, 6] [Type: a3_i64]
+    [<Raw View>]     [Type: a3_i64]
+    [0]              : 4 [Type: __int64]
+    [1]              : 5 [Type: __int64]
+    [2]              : 6 [Type: __int64]
+-- dx -r1 v_g
+v_g              : View { name: "view", vals: [4, 5, 6] } [Type: View_g]
+    [<Raw View>]     [Type: View_g]
+    name             : "view" [Type: sl_u8]
+    vals             : [4, 5, 6] [Type: sl_i64]
+-- !goose_locals
+p: Pair<i64> = Pair<i64> { a: 1, b: 2 }
+q: Pair<f64> = Pair<f64> { a: 0.5, b: 1.5 }
+s: Opt<i64>.Some = Opt<i64>.Some { v: 9 }
+o: Opt<i64> = Opt<i64>.Some { v: 9 }
+e: Opt<i64> = Opt<i64>.None
+arr: i64[3] = [4, 5, 6]
+v: View = View { name: "view", vals: [4, 5, 6] }
+@@ generics.goose:9 sum_g
+-- dx -r1 label_g
+label_g          : "view" [Type: sl_u8]
+    [<Raw View>]     [Type: sl_u8]
+    [len]            : 4 [Type: __int64]
+    [0x0]            : 118 [Type: int]
+    [0x1]            : 105 [Type: int]
+    [0x2]            : 101 [Type: int]
+    [0x3]            : 119 [Type: int]
+-- dx -r1 xs_g
+xs_g             : [4, 5, 6] [Type: sl_i64]
+    [<Raw View>]     [Type: sl_i64]
+    [len]            : 3 [Type: __int64]
+    [0]              : 4 [Type: __int64]
+    [1]              : 5 [Type: __int64]
+    [2]              : 6 [Type: __int64]
+-- dx -r1 t_g
+t_g              : 15 [Type: __int64]
+-- dx -r1 x_g
+x_g              : 6 [Type: __int64]
+-- !goose_locals
+label: const u8[:] = "view"
+xs: i64[:] = [4, 5, 6]
+t: i64 = 15
+x: i64 = 6

@@ -1,0 +1,16 @@
+@@ resizable.goose:12 main_g
+-- dx -r1 nums_g
+nums_g           [Type: gs_rhdr]
+    [+0x000] base             : 0x_ : 0x0 [Type: unsigned char *]
+    [+0x008] len              : 4 [Type: __int64]
+-- dx -r1 i_g
+i_g              : 4 [Type: __int64]
+-- dx -r1 text_g
+text_g           [Type: gs_rhdr]
+    [+0x000] base             : 0x_ : 0x67 [Type: unsigned char *]
+    [+0x008] len              : 7 [Type: __int64]
+-- dx -r1 s_g
+s_g              [Type: Stack_g]
+    [+0x000] name_g           [Type: l8_u8]
+    [+0x009] depth_g          : 2 [Type: int]
+    [+0x00d] items_g          [Type: gs_rhdr]

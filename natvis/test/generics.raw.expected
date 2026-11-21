@@ -1,0 +1,40 @@
+@@ generics.goose:20 main_g
+-- dx -r1 p_g
+p_g              [Type: Pair_g_i64]
+    [+0x000] a_g              : 1 [Type: __int64]
+    [+0x008] b_g              : 2 [Type: __int64]
+-- dx -r1 q_g
+q_g              [Type: Pair_g_f64]
+    [+0x000] a_g              : 0.500000 [Type: double]
+    [+0x008] b_g              : 1.500000 [Type: double]
+-- dx -r1 s_g
+s_g              [Type: Opt_g_i64_Some_p]
+    [+0x000] v_g              : 9 [Type: __int64]
+-- dx -r1 o_g
+o_g              [Type: Opt_g_i64]
+    [+0x000] tag              : 0x1 [Type: unsigned char]
+    [+0x001] u                [Type: <unnamed-tag>]
+-- dx -r1 e_g
+e_g              [Type: Opt_g_i64]
+    [+0x000] tag              : 0x0 [Type: unsigned char]
+    [+0x001] u                [Type: <unnamed-tag>]
+-- dx -r1 arr_g
+arr_g            [Type: a3_i64]
+    [+0x000] e                [Type: __int64 [3]]
+-- dx -r1 v_g
+v_g              [Type: View_g]
+    [+0x000] name_g           [Type: sl_u8]
+    [+0x010] vals_g           [Type: sl_i64]
+@@ generics.goose:9 sum_g
+-- dx -r1 label_g
+label_g          [Type: sl_u8]
+    [+0x000] data             : 0x_ : 0x76 [Type: unsigned char *]
+    [+0x008] len              : 4 [Type: __int64]
+-- dx -r1 xs_g
+xs_g             [Type: sl_i64]
+    [+0x000] data             : 0x_ : 4 [Type: __int64 *]
+    [+0x008] len              : 3 [Type: __int64]
+-- dx -r1 t_g
+t_g              : 15 [Type: __int64]
+-- dx -r1 x_g
+x_g              : 6 [Type: __int64]
