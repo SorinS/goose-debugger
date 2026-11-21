@@ -15,6 +15,8 @@ patches for its author, against the goose.git commit each one names.
     and stops on the Goose source.
   - `0002`: `--debug` implies Goose `-O0` (no inlining) unless an `-O` is
     given, so every function keeps its own frame.
+  - `0003`: one breakpoint location per Goose line, and a breakpoint in a
+    loop's body stops each time round.
 - `lldb/`: `goose_lldb.py`, LLDB summaries and synthetic children for Goose
   values, and its tests.
 - `tests/`: checks of the patched compiler through LLDB in batch mode.
@@ -39,7 +41,8 @@ lldb -o 'b prog.goose:12' -o run ./prog
 
 ## Status
 
-1. `#line` under `--debug`: done as draft patches 0001 and 0002.
+1. `#line` under `--debug`: done as draft patches 0001 to 0003, applied
+   on goose.git's `debug1` branch.
 2. LLDB module: done (`lldb/`). Slices, arrays, text, structs, enums and
    variants, references and optionals show as Goose values; resizables
    show their length only. `lldb/README.md` lists what DWARF cannot tell.

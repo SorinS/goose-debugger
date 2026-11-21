@@ -1,0 +1,186 @@
+From cce0dc79fb2eec90c1ef00007806c5e5214cc847 Mon Sep 17 00:00:00 2001
+From: SorinS <ssuciu@gmail.com>
+Date: Sat, 21 Nov 2026 20:36:31 +0000
+Subject: [PATCH] --debug: one breakpoint location per Goose line
+
+A breakpoint on one Goose line could resolve to several locations and
+stop several times, and one in a loop's body could stop once, before the
+loop. Two causes:
+
+- A debugger puts a location in each lexical block a line's code passes
+  through, and a C block that declares a variable is one. A print of a
+  few values goes through a switch per value, each case declaring its
+  temporaries. Under --debug, HoistAggregateDecls also moves scalar and
+  pointer declarations, and loop counters declared in a for, to the
+  function's opening brace, so the blocks declare nothing.
+- Lines put in after L wrote the body (hoisted declarations, a loop's
+  cached top and length, the prologue) followed a #line without one of
+  their own, so they counted on to the next Goose line: a loop's set-up
+  was charged to the first line of its body. ResetLines now repeats the
+  #line before every such line inside a function, which also replaces
+  the prologue's own loop.
+
+Test: a print of structs, enums and a resizable is one location, hit
+once; a line in a loop of three stops three times, the first with the
+counter at 0. A line of a function with two instances keeps one
+location per instance.
+---
+ src/codegen.h      | 45 +++++++++++++++++++++++++++++++++++---------
+ src/codegen_emit.h | 47 ++++++++++++++++++++++++++++++++++------------
+ 2 files changed, 71 insertions(+), 21 deletions(-)
+
+diff --git a/src/codegen.h b/src/codegen.h
+index c3bcbaa2..30ec24c0 100644
+--- a/src/codegen.h
++++ b/src/codegen.h
+@@ -191,7 +191,8 @@ struct CodeGen {
+     // Goose source. One directive per C line, not per statement: after
+     // `#line N` the next C lines would count on as N+1, N+2. A function
+     // ends with LINE_RESET, which ResetLines turns into a #line back to
+-    // the C file itself, so what follows is not charged to Goose.
++    // the C file itself, so what follows is not charged to Goose; and
++    // ResetLines repeats a #line before any line put in after L wrote it.
+     bool linedirs = false;
+     Line srcline;                        // The statement being emitted; line 0 = none.
+     map<int, string> linefiles;          // fileidx -> its #line file literal.
+@@ -210,17 +211,43 @@ struct CodeGen {
+     void LineDir(string &s, Line l) {
+         if (linedirs && l.line > 0) Append(s, "#line ", l.line, " ", LineFile(l.fileidx), "\n");
+     }
+-    // The assembled C with each LINE_RESET replaced by a #line that gives
+-    // the following lines their own numbers in `cfile` again.
++    // The assembled C made exact. Inside a function every line of code
++    // gets a #line of its own, the one before it repeated where the line
++    // was put in after L wrote it (a hoisted declaration, a cached top,
++    // a function's prologue): the C after a #line counts on from it and
++    // would charge its next line to the next Goose line. Each LINE_RESET
++    // becomes a #line that gives the following lines their own numbers in
++    // `cfile` again.
+     static string ResetLines(const string &c, const string &cfile) {
+-        string out, name = CStr(cfile), mark = cat(LINE_RESET, "\n");
+-        out.reserve(c.size());
+-        size_t ln = 1;
+-        for (size_t pos = 0, nl; pos < c.size(); pos = nl + 1, ln++) {
++        string out, name = CStr(cfile), cur;
++        string_view mark = LINE_RESET;
++        out.reserve(c.size() + c.size() / 2);
++        size_t ln = 1;   // The line of out being written.
++        bool after = false;   // Right after a #line.
++        for (size_t pos = 0, nl; pos < c.size(); pos = nl + 1) {
+             nl = c.find('\n', pos);
+             if (nl == string::npos) nl = c.size() - 1;
+-            if (c.compare(pos, nl + 1 - pos, mark) == 0) Append(out, "#line ", ln + 1, " ", name, "\n");
+-            else out.append(c, pos, nl + 1 - pos);
++            string_view line(c.data() + pos, nl - pos);
++            if (line == mark) {
++                Append(out, "#line ", ln + 1, " ", name, "\n");
++                cur.clear();
++            } else if (line.substr(0, 6) == "#line ") {
++                out.append(line);
++                out += '\n';
++                cur = line;
++                after = true;
++                ln++;
++                continue;
++            } else {
++                if (!cur.empty() && !after && !line.empty()) {
++                    Append(out, cur, "\n");
++                    ln++;
++                }
++                out.append(line);
++                out += '\n';
++            }
++            after = false;
++            ln++;
+         }
+         return out;
+     }
+diff --git a/src/codegen_emit.h b/src/codegen_emit.h
+index f821aa5d..c641e0b0 100644
+--- a/src/codegen_emit.h
++++ b/src/codegen_emit.h
+@@ -492,6 +492,10 @@ inline string CodeGen::HoistAggregateDecls(string &b) {
+         "volatile", "register", "unsigned", "signed", "long", "short", "struct", "union",
+         "enum", "typedef", "if", "for", "while", "switch",
+     };
++    static const unordered_set<string> scalars = {
++        "int8_t", "int16_t", "int32_t", "int64_t", "uint8_t", "uint16_t", "uint32_t",
++        "uint64_t", "float", "double", "int", "char", "size_t", "void",
++    };
+     auto isid = [](char c) { return isalnum((unsigned char)c) || c == '_'; };
+     string decls, out;
+     out.reserve(b.size());
+@@ -504,14 +508,43 @@ inline string CodeGen::HoistAggregateDecls(string &b) {
+         size_t i = 0;
+         while (i < line.size() && line[i] == ' ') i++;
+         auto indent = i;
++        // So is a loop counter declared in a for: the loop's body would be
++        // a block of its own.
++        if (linedirs && line.substr(i, 5) == "for (") {
++            auto ts = i + 5, j = ts;
++            while (j < line.size() && isid(line[j])) j++;
++            string type(line.substr(ts, j - ts));
++            if (!type.empty() && (!keep.count(type) || scalars.count(type)) && j < line.size() &&
++                line[j] == ' ') {
++                auto ns = ++j;
++                while (j < line.size() && isid(line[j])) j++;
++                string name(line.substr(ns, j - ns));
++                if (!name.empty() && !isdigit((unsigned char)name[0]) &&
++                    line.substr(j, 3) == " = ") {
++                    Append(decls, "    ", type, " ", name, ";\n");
++                    out.append(line.substr(0, ts));
++                    out.append(line.substr(ns));
++                    out += '\n';
++                    continue;
++                }
++            }
++        }
+         auto ts = i;
+         while (i < line.size() && isid(line[i])) i++;
+         string type(line.substr(ts, i - ts));
+         bool hoist = false;
+         string name, init;
+-        if (!type.empty() && !isdigit((unsigned char)type[0]) && !keep.count(type) &&
++        // Under --debug scalars and pointers move too: a C block that
++        // declares a variable is a lexical block in the debug information,
++        // and a debugger puts a breakpoint location in each block a line's
++        // code passes through, so one Goose line would stop several times.
++        string stars;
++        auto scalar = linedirs && scalars.count(type);
++        if (!type.empty() && !isdigit((unsigned char)type[0]) && (!keep.count(type) || scalar) &&
+             i < line.size() && line[i] == ' ') {
+             i++;
++            if (linedirs)
++                while (i < line.size() && line[i] == '*') stars += '*', i++;
+             auto ns = i;
+             while (i < line.size() && isid(line[i])) i++;
+             name = string(line.substr(ns, i - ns));
+@@ -529,7 +562,7 @@ inline string CodeGen::HoistAggregateDecls(string &b) {
+             out += '\n';
+             continue;
+         }
+-        Append(decls, "    ", type, " ", name, ";\n");
++        Append(decls, "    ", type, " ", stars, name, ";\n");
+         if (!init.empty()) {
+             out.append(indent, ' ');
+             if (init[0] != '{') {
+@@ -709,16 +742,6 @@ inline void CodeGen::EmitSpec(FnSpec *sp, bool er) {
+     // main runs before anything else, so these are final on entry.
+     for (auto &p : poolbases)
+         Append(fnbody, "    uint8_t *", p.second, " = ", gnames[p.first], ".base;\n");
+-    if (linedirs) {   // The prologue's lines are the declaration's.
+-        string pro;
+-        for (size_t pos = 0, nl; pos < fnbody.size(); pos = nl + 1) {
+-            nl = fnbody.find('\n', pos);
+-            if (nl == string::npos) nl = fnbody.size() - 1;
+-            LineDir(pro, sp->sf->line);
+-            pro.append(fnbody, pos, nl + 1 - pos);
+-        }
+-        fnbody = pro;
+-    }
+     fnbody += bodyout;
+     auto name = er ? ernames[sp] : curinfo->cname;
+     LineDir(code, sp->sf->line);
+-- 
+2.50.1 (Apple Git-155)
+
