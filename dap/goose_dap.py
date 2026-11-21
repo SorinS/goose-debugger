@@ -1638,4 +1638,13 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    rc = main()
+    # The client reader is a daemon thread blocked reading stdin; at
+    # interpreter shutdown Python aborts on a buffered stream another thread
+    # holds (_enter_buffered_busy). The session is over: flush and leave.
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:
+        pass
+    os._exit(rc or 0)
