@@ -1,0 +1,505 @@
+From 37102ed2bb8c33fdd38b89ef2bc85ba635dc70ef Mon Sep 17 00:00:00 2001
+From: SorinS <ssuciu@gmail.com>
+Date: Sat, 21 Nov 2026 23:08:50 +0000
+Subject: [PATCH 1/3] -g, --debug-info: build a program for stepping its Goose
+ source
+
+--debug gives the overflow, range and tag checks and C debug information,
+but a debugger then steps the generated C: its lines, its temporaries,
+and functions Goose inlined into their callers. -g (or --debug-info), the
+flag C compilers, rustc, swiftc and GHC use for debug information, gives
+--debug and builds the C for a debugger:
+
+- Every line of a function's C is preceded by a #line naming the Goose
+  line it came from: a statement's, a match arm's, a block's or a
+  function's tail value's, the declaration's for the prologue. One
+  directive per C line, not per statement, since after `#line N` the
+  following lines count on as N+1, N+2; lines put in after the body was
+  written (hoisted declarations, a loop's cached top) get the directive
+  repeated when the C is assembled (ResetLines). File names are absolute.
+  Each function ends with a #line back to the .c file at its true line,
+  so the runtime and helpers that follow are not charged to Goose.
+- A debugger puts a breakpoint location in every lexical block a line's
+  code passes through, and a C block that declares a variable is one:
+  every declaration, scalars, pointers and for counters included, is
+  hoisted to the function's opening brace, so a Goose line is one
+  location and a loop's body stops each time round.
+- No inlining unless an -O asks for it, so every function keeps its
+  frame; folding and propagation run as at every level.
+- No resizable's count is cached: every push writes the header, so the
+  array is shown as it is from any frame while a loop grows it.
+
+Without -g nothing changes, and --debug alone gives the C it gave.
+
+Test: with LLDB, cdb and gdb, on macOS arm64, Windows x64 (MSVC, PDB)
+and Linux x86_64 (gcc and clang): a breakpoint on a Goose line binds and
+stops there, once a line and each time round a loop; a function keeps
+its frame; the call stack names .goose files and lines.
+---
+ docs/command_line.md |  5 ++-
+ src/codegen.h        | 83 ++++++++++++++++++++++++++++++++++++++++++--
+ src/codegen_emit.h   | 46 ++++++++++++++++++++++--
+ src/codegen_frames.h |  4 +++
+ src/codegen_nodes.h  |  4 +--
+ src/codegen_stmts.h  | 10 +++++-
+ src/includes.h       |  1 +
+ src/main.cpp         | 41 ++++++++++++++++------
+ 8 files changed, 176 insertions(+), 18 deletions(-)
+
+diff --git a/docs/command_line.md b/docs/command_line.md
+index b078ac9a..e6ade7ac 100644
+--- a/docs/command_line.md
++++ b/docs/command_line.md
+@@ -125,6 +125,7 @@ It takes no `-o`: the flag form `goose -o out.c` writes C instead
+ goose build hello.goose && ./hello
+ goose build -o out/hello hello.goose     # the executable elsewhere
+ goose build --debug hello.goose          # checked, with debug information
++goose build -g hello.goose               # checked, for stepping it in a debugger
+ goose build --dry-run hello.goose        # print the commands and run none
+ goose build --shared hello.goose         # libhello.so/.dylib, or hello.dll
+ ```
+@@ -161,6 +162,7 @@ beyond those in [§5](#5-options-for-run-build-and-check):
+ |---|---|
+ | `-o exe` | Where the executable goes. Its directory is made if needed. |
+ | `--debug` | Turn on the overflow, range and tag checks (`GS_DEBUG=1`), and build the C without optimization and with debug information (`/Od /Zi`, or `-O0 -g`), for a debugger. |
++| `-g`, `--debug-info` | `--debug`, and the C built for stepping the Goose source in a debugger: `#line` directives, so a debugger shows, steps and stops on the Goose source, one breakpoint location to a line; and, unless an `-O` says otherwise, no inlining (`-O0`), so every function keeps a frame of its own. |
+ | `--cc name\|path` | The C compiler, as above. |
+ | `--standalone` | Compile the runtime into the program, rather than linking the runtime object built once per C compiler. |
+ | `--shared` | Build a self-contained shared library (`lib<stem>.so`, `lib<stem>.dylib` or `<stem>.dll`) instead of an executable. The library has no C `main`; `goose_init`, `goose_exit` and the program's `export fn` symbols are its host API ([reference §24](reference.md#24-calling-c-and-being-called-from-c)). This implies `--standalone`; `--header out.h` ([§8](#8-writing-the-c-yourself)) writes the host's header too. |
+@@ -195,8 +197,9 @@ These options have the same meaning for `goose run`, `goose build`,
+ 
+ | Option | What it does |
+ |---|---|
+-| `-O0`, `-O1`, `-O2` | How much the Goose compiler inlines: nothing, a little, or the most (the default). Constant folding and propagation run at every level, and a build's C compiler optimizes at every level. |
++| `-O0`, `-O1`, `-O2` | How much the Goose compiler inlines: nothing, a little, or the most (the default; `-O0` with `-g`). Constant folding and propagation run at every level, and a build's C compiler optimizes at every level. |
+ | `--debug` | Turn on the overflow checks, the range checks of `as` casts and the tag checks (`GS_DEBUG=1`). Each failure names its source line, and an overflow or a cast names the values involved. A build also gets debug information ([§3](#3-building-an-executable)). |
++| `-g`, `--debug-info` | `--debug`, and a program built for a debugger ([§3](#3-building-an-executable)). |
+ | `-D NAME[=VALUE]` | Define a C macro in the generated program, as `-DNAME[=VALUE]` does too. The define is written into the C itself, so a run and a build see the same source. The value is 1 when none is given. |
+ | `--stack-reserve size` | The address space reserved for each data stack, from 64K up to 256T with a `K`, `M`, `G` or `T` suffix. The default is 2G. The address space is committed as it is used, so a large reservation costs nothing until it is used. |
+ | `--stacks` | Report how many data stacks the program and each of its workers use, what that adds up to, and the cap it puts on `hardware_threads()`. |
+diff --git a/src/codegen.h b/src/codegen.h
+index 7eccd4f5..b85ccb74 100644
+--- a/src/codegen.h
++++ b/src/codegen.h
+@@ -186,6 +186,74 @@ struct CodeGen {
+     // and the checks' cost can be priced (--unsafe-no-rf-check).
+     bool norfcheck = false;
+ 
++    // -g: every line of a function's C is preceded by a #line naming
++    // the Goose statement it came from, so a debugger shows and steps the
++    // Goose source. One directive per C line, not per statement: after
++    // `#line N` the next C lines would count on as N+1, N+2. A function
++    // ends with LINE_RESET, which ResetLines turns into a #line back to
++    // the C file itself, so what follows is not charged to Goose; and
++    // ResetLines repeats a #line before any line put in after L wrote it.
++    bool linedirs = false;
++    Line srcline;                        // The statement being emitted; line 0 = none.
++    map<int, string> linefiles;          // fileidx -> its #line file literal.
++    static constexpr const char *LINE_RESET = "#line @@gs_reset";
++
++    string SourcePath(int fileidx) {   // Absolute and normalized, with forward slashes.
++        string f = fileidx >= 0 && fileidx < (int)ast.sources.size()
++                       ? ast.sources[fileidx].first : string("?");
++        std::error_code ec;
++        auto abs = filesystem::absolute(filesystem::path(f), ec);
++        return ec ? f : abs.lexically_normal().generic_string();
++    }
++    string LineFile(int fileidx) {
++        auto it = linefiles.find(fileidx);
++        if (it != linefiles.end()) return it->second;
++        return linefiles.emplace(fileidx, CStr(SourcePath(fileidx))).first->second;
++    }
++    void LineDir(string &s, Line l) {
++        if (linedirs && l.line > 0) Append(s, "#line ", l.line, " ", LineFile(l.fileidx), "\n");
++    }
++    // The assembled C made exact. Inside a function every line of code
++    // gets a #line of its own, the one before it repeated where the line
++    // was put in after L wrote it (a hoisted declaration, a cached top,
++    // a function's prologue): the C after a #line counts on from it and
++    // would charge its next line to the next Goose line. Each LINE_RESET
++    // becomes a #line that gives the following lines their own numbers in
++    // `cfile` again.
++    static string ResetLines(const string &c, const string &cfile) {
++        string out, name = CStr(cfile), cur;
++        string_view mark = LINE_RESET;
++        out.reserve(c.size() + c.size() / 2);
++        size_t ln = 1;   // The line of out being written.
++        bool after = false;   // Right after a #line.
++        for (size_t pos = 0, nl; pos < c.size(); pos = nl + 1) {
++            nl = c.find('\n', pos);
++            if (nl == string::npos) nl = c.size() - 1;
++            string_view line(c.data() + pos, nl - pos);
++            if (line == mark) {
++                Append(out, "#line ", ln + 1, " ", name, "\n");
++                cur.clear();
++            } else if (line.substr(0, 6) == "#line ") {
++                out.append(line);
++                out += '\n';
++                cur = line;
++                after = true;
++                ln++;
++                continue;
++            } else {
++                if (!cur.empty() && !after && !line.empty()) {
++                    Append(out, cur, "\n");
++                    ln++;
++                }
++                out.append(line);
++                out += '\n';
++            }
++            after = false;
++            ln++;
++        }
++        return out;
++    }
++
+     [[noreturn]] void Fail(Line l, const string &msg) {
+         auto s = cat("codegen: ", msg);
+         if (l.fileidx >= 0 && l.fileidx < (int)ast.sources.size())
+@@ -670,6 +738,7 @@ struct CodeGen {
+     // calls therefore never share an argument list (or any one expression):
+     // the earlier goes to a local of its own first.
+     template<typename... Ts> void L(const Ts &...args) {
++        LineDir(body, srcline);
+         body.append((size_t)ind * 4, ' ');
+         Append(body, args...);
+         body += '\n';
+@@ -1091,6 +1160,16 @@ struct CodeGen {
+         else n->CgAny(*this, d);
+     }
+     void GenStmt2(Node *n) { n->CgStmt(*this); }
++    // GenAny for a value that stands in a statement's place -- a block's
++    // tail, a function's, a match arm's -- under the value's own line, as
++    // GenStmt puts a statement under its line (-g): a function whose body
++    // is a match would charge every arm to the `fn` line.
++    void GenAt(Node *n, Dst d) {
++        auto outer = srcline;
++        if (linedirs && n->line.line > 0) srcline = n->line;
++        GenAny(n, d);
++        srcline = outer;
++    }
+ 
+     string CtlValX(Node *n);
+     void LeafAny(Node *n, const Dst &d);
+@@ -1598,9 +1677,9 @@ struct CodeGen {
+     // A function the extern support declares gets no prototype here.
+     CodeGen(Ast &_ast, string_view runtime_ext_text, const vector<string> &headers,
+             bool _norfcheck = false, bool _library = false, bool _sharedlibrary = false,
+-            int64_t _maxstacks = 0)
++            int64_t _maxstacks = 0, bool _linedirs = false)
+         : ast(_ast), library(_library), sharedlibrary(_sharedlibrary),
+-          norfcheck(_norfcheck), maxstacks(_maxstacks) {
++          norfcheck(_norfcheck), linedirs(_linedirs), maxstacks(_maxstacks) {
+         for (auto t : ast.alltypes)
+             if (t->kind == TY_REF && t->ref->pool) poolglobals.insert(t->ref->pool);
+         ComputeRelRootMax();
+diff --git a/src/codegen_emit.h b/src/codegen_emit.h
+index db8950e6..40eb7adf 100644
+--- a/src/codegen_emit.h
++++ b/src/codegen_emit.h
+@@ -492,6 +492,10 @@ inline string CodeGen::HoistAggregateDecls(string &b) {
+         "volatile", "register", "unsigned", "signed", "long", "short", "struct", "union",
+         "enum", "typedef", "if", "for", "while", "switch",
+     };
++    static const unordered_set<string> scalars = {
++        "int8_t", "int16_t", "int32_t", "int64_t", "uint8_t", "uint16_t", "uint32_t",
++        "uint64_t", "float", "double", "int", "char", "size_t", "void",
++    };
+     auto isid = [](char c) { return isalnum((unsigned char)c) || c == '_'; };
+     string decls, out;
+     out.reserve(b.size());
+@@ -504,14 +508,43 @@ inline string CodeGen::HoistAggregateDecls(string &b) {
+         size_t i = 0;
+         while (i < line.size() && line[i] == ' ') i++;
+         auto indent = i;
++        // So is a loop counter declared in a for: the loop's body would be
++        // a block of its own.
++        if (linedirs && line.substr(i, 5) == "for (") {
++            auto ts = i + 5, j = ts;
++            while (j < line.size() && isid(line[j])) j++;
++            string type(line.substr(ts, j - ts));
++            if (!type.empty() && (!keep.count(type) || scalars.count(type)) && j < line.size() &&
++                line[j] == ' ') {
++                auto ns = ++j;
++                while (j < line.size() && isid(line[j])) j++;
++                string name(line.substr(ns, j - ns));
++                if (!name.empty() && !isdigit((unsigned char)name[0]) &&
++                    line.substr(j, 3) == " = ") {
++                    Append(decls, "    ", type, " ", name, ";\n");
++                    out.append(line.substr(0, ts));
++                    out.append(line.substr(ns));
++                    out += '\n';
++                    continue;
++                }
++            }
++        }
+         auto ts = i;
+         while (i < line.size() && isid(line[i])) i++;
+         string type(line.substr(ts, i - ts));
+         bool hoist = false;
+         string name, init;
+-        if (!type.empty() && !isdigit((unsigned char)type[0]) && !keep.count(type) &&
++        // Under -g scalars and pointers move too: a C block that
++        // declares a variable is a lexical block in the debug information,
++        // and a debugger puts a breakpoint location in each block a line's
++        // code passes through, so one Goose line would stop several times.
++        string stars;
++        auto scalar = linedirs && scalars.count(type);
++        if (!type.empty() && !isdigit((unsigned char)type[0]) && (!keep.count(type) || scalar) &&
+             i < line.size() && line[i] == ' ') {
+             i++;
++            if (linedirs)
++                while (i < line.size() && line[i] == '*') stars += '*', i++;
+             auto ns = i;
+             while (i < line.size() && isid(line[i])) i++;
+             name = string(line.substr(ns, i - ns));
+@@ -529,7 +562,7 @@ inline string CodeGen::HoistAggregateDecls(string &b) {
+             out += '\n';
+             continue;
+         }
+-        Append(decls, "    ", type, " ", name, ";\n");
++        Append(decls, "    ", type, " ", stars, name, ";\n");
+         if (!init.empty()) {
+             out.append(indent, ' ');
+             if (init[0] != '{') {
+@@ -614,6 +647,9 @@ inline void CodeGen::EmitSpec(FnSpec *sp, bool er) {
+     FindRefAliases(sp);
+     PlanTopClasses(sp);
+     markers = true;
++    // The prologue is the declaration's line, where a breakpoint on the
++    // function stops.
++    srcline = sp->sf->line;
+     PushSc(SC_FN);
+     auto params = SigParams(sp, true, er);
+     // The spellings are only known once SigParams has named the parameters.
+@@ -668,7 +704,10 @@ inline void CodeGen::EmitSpec(FnSpec *sp, bool er) {
+         if (auto fi = Is<IfExpr>(tail); fi && !fi->elseb) asvalue = false;
+         if (asvalue && !IsVoidT(tail->exprtype)) {
+             vector<Node *> vals = { tail };
++            auto outer = srcline;   // The tail's own line, as GenAt gives it.
++            if (linedirs && tail->line.line > 0) srcline = tail->line;
+             GenNormalReturn(vals);
++            srcline = outer;
+         } else {
+             GenStmt(tail);
+         }
+@@ -708,9 +747,12 @@ inline void CodeGen::EmitSpec(FnSpec *sp, bool er) {
+         Append(fnbody, "    uint8_t *", p.second, " = ", gnames[p.first], ".base;\n");
+     fnbody += bodyout;
+     auto name = er ? ernames[sp] : curinfo->cname;
++    LineDir(code, sp->sf->line);
+     if (sp->sf->issimd) EmitSimdVersions(sp, name, params, fnbody);
+     else Append(code, "static ", FnAttrs(sp), SigRet(sp), " ", name, "(", params, ") {\n", fnbody,
+                 "}\n\n");
++    if (linedirs) Append(code, LINE_RESET, "\n");
++    srcline = Line {};
+     curspec = nullptr;
+     curinfo = nullptr;
+     emiter = false;
+diff --git a/src/codegen_frames.h b/src/codegen_frames.h
+index e3f8ad0b..7a3c64f5 100644
+--- a/src/codegen_frames.h
++++ b/src/codegen_frames.h
+@@ -805,6 +805,10 @@ inline string_view CodeGen::NextLine(const string &b, size_t &i, size_t &ind0) {
+ // The count a growth site writes, for caching with the stack's top when its
+ // header qualifies (LenSlot).
+ inline void CodeGen::NoteLen(const string &stk, const string &lenlv, const string &component) {
++    // Under -g a count is written where it changes: a debugger reads the
++    // header, in this frame and in every caller's, and a cached count would
++    // show the array empty until the extent ends.
++    if (linedirs) return;
+     string root = component;
+     if (!CacheableStk(stk) || (root.empty() && !LenRoot(lenlv, root))) return;
+     auto k = TopIdx(stk);
+diff --git a/src/codegen_nodes.h b/src/codegen_nodes.h
+index 188e18ad..75070a07 100644
+--- a/src/codegen_nodes.h
++++ b/src/codegen_nodes.h
+@@ -567,7 +567,7 @@ inline void MatchExpr::CgAny(CodeGen &cg, const Dst &d) {
+             first = false;
+             cg.ind++;
+             cg.PushSc(CodeGen::SC_PLAIN);
+-            cg.GenAny(arm.body, d);
++            cg.GenAt(arm.body, d);
+             cg.PopSc();
+             cg.ind--;
+         }
+@@ -646,7 +646,7 @@ inline void MatchExpr::CgAny(CodeGen &cg, const Dst &d) {
+             }
+             cg.vnames[arm.binder] = bn;
+         }
+-        cg.GenAny(arm.body, d);
++        cg.GenAt(arm.body, d);
+         cg.PopSc();
+         cg.ind--;
+         cg.L("} break;");
+diff --git a/src/codegen_stmts.h b/src/codegen_stmts.h
+index 2cf5e1c3..31eed714 100644
+--- a/src/codegen_stmts.h
++++ b/src/codegen_stmts.h
+@@ -14,10 +14,13 @@ inline void CodeGen::GenBlockInner(Block *b, Dst d, size_t first, int exitscope)
+     if (b->tail && !IsVoidT(b->tail->exprtype) && d.k != DK_DISCARD) {
+         // An inlined body's tail is a return too: another named result may
+         // already occupy its destination, just as at an explicit return.
++        auto outer = srcline;
++        if (linedirs && b->tail->line.line > 0) srcline = b->tail->line;
+         if (exitscope >= 0) GenExitValue(b->tail, exitscope);
+         else GenAny(b->tail, d);
++        srcline = outer;
+     }
+-    else if (b->tail) GenAny(b->tail, Dst {});
++    else if (b->tail) GenAt(b->tail, Dst {});
+     MarkLoopEnd(region);
+ }
+ 
+@@ -40,7 +43,12 @@ inline size_t CodeGen::GenInlineArgs(Block *b) {
+ inline void CodeGen::GenStmt(Node *n) {
+     PushSc(SC_STMT);
+     termjump = false;
++    // What the enclosing statement emits after this one (a loop's step, its
++    // closing restores) is the enclosing statement's again.
++    auto outer = srcline;
++    if (n->line.line > 0) srcline = n->line;
+     GenStmt2(n);
++    srcline = outer;
+     if (termjump) {   // Nothing runs after a jump.
+         cscopes.back().saves.clear();
+         cscopes.back().defers.clear();
+diff --git a/src/includes.h b/src/includes.h
+index 26f25617..a83e14d1 100644
+--- a/src/includes.h
++++ b/src/includes.h
+@@ -18,6 +18,7 @@
+ #include <condition_variable>
+ #include <deque>
+ #include <exception>
++#include <filesystem>
+ #include <functional>
+ #include <map>
+ #include <memory>
+diff --git a/src/main.cpp b/src/main.cpp
+index ddd3223b..b1d23291 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -719,6 +719,8 @@ R"(  --stats               Print what the compile did: the declarations parsed,
+ constexpr const char *DEBUGOPTION =
+ R"(  --debug               Overflow, range and tag checks that name the source
+                         line they fail on.
++  -g, --debug-info      --debug, and the C built for a debugger: #line
++                        directives, and -O0 unless an -O is given.
+ )";
+ 
+ // The help on a command or topic, `goose help` or `goose --help`'s for ""
+@@ -743,9 +745,11 @@ Commands:
+   help       Print this (or --help, -h); with a command, that command's help.
+ 
+ Common options:
+-  -O0, -O1, -O2   Inlining level (default -O2).
++  -O0, -O1, -O2   Inlining level (default -O2; -O0 with -g).
+   --debug         Overflow, range and tag checks that name the source line
+                   they fail on.
++  -g, --debug-info
++                  --debug, and the program built for a debugger.
+   --stats         Print what the compile did (declarations, bounds checks
+                   removed, files written).
+   --color when    Color errors and warnings: auto (on a terminal, unless
+@@ -773,7 +777,7 @@ its exit code. What follows -- is the program's arguments. A program that
+ starts threads needs goose build.
+ 
+ Options:
+-  -O0, -O1, -O2         Inlining level (default -O2).
++  -O0, -O1, -O2         Inlining level (default -O2; -O0 with -g).
+ )", DEBUGOPTION, COMPILEOPTIONS,
+ R"(  --cc name|path        The C compiler for packages' native parts: msvc,
+                         clang-cl, clang, gcc, cc or a path (or GOOSE_CC).
+@@ -790,10 +794,13 @@ go under GOOSE_HOME.
+ 
+ Options:
+   -o exe                Where the executable goes.
+-  -O0, -O1, -O2         Inlining level (default -O2). The C compiler
+-                        optimizes at every level, unless --debug.
++  -O0, -O1, -O2         Inlining level (default -O2; -O0 with -g). The C
++                        compiler optimizes at every level, unless --debug.
+   --debug               Overflow, range and tag checks that name the source
+-                        line they fail on, and the C built for a debugger.
++                        line they fail on, and C debug information.
++  -g, --debug-info      --debug, and the C built for stepping the Goose source
++                        in a debugger: #line directives, and no inlining
++                        unless an -O is given.
+ )", COMPILEOPTIONS,
+ R"(  --cc name|path        The C compiler: msvc, clang-cl, clang, gcc, cc or a
+                         path (or GOOSE_CC; by default the first one found).
+@@ -921,7 +928,7 @@ Options:
+   --<package>-link msvc|cc
+                         Print the response file that links the native part of
+                         a package compiled into goose (--gfx-link cc).
+-  -O0, -O1, -O2         Inlining level (default -O2).
++  -O0, -O1, -O2         Inlining level (default -O2; -O0 with -g).
+ )", DEBUGOPTION, COMPILEOPTIONS);
+     if (topic == "internals") return cat(
+ R"(usage: goose [options] file.goose
+@@ -1402,11 +1409,14 @@ int Main(int argc, char **argv) {
+     auto stats = false;
+     auto forcejit = false, standalone = false, shared = false;
+     auto json = false, refresh = false, debug = false, verbose = false, dryrun = false;
++    auto debuginfo = false;   // -g: --debug, and the C built for stepping the Goose source.
+     auto jsondiag = false;
+     string ccrequest;
+     // The inlining at its highest. The C compiler optimizes whatever the
+     // level, unless --debug (Builder::CFlags).
+-    auto optlevel = 2;
++    // -g keeps every function as a frame of its own: no inlining,
++    // unless an -O asks for it.
++    auto optlevel = -1;
+     vector<string> cdefines, progargs, includenames, files;
+     for (int i = firstarg; i < argc; i++) {
+         string arg = argv[i];
+@@ -1501,9 +1511,10 @@ int Main(int argc, char **argv) {
+         else if (arg == "--cc" && i + 1 < argc) ccrequest = argv[++i];
+         else if (arg == "--json") json = true;
+         else if (arg == "--refresh") refresh = true;
+-        else if (arg == "--debug") {
++        else if (arg == "--debug" || arg == "-g" || arg == "--debug-info") {
++            if (arg != "--debug") debuginfo = true;
++            if (!debug) cdefines.push_back("GS_DEBUG=1");
+             debug = true;
+-            cdefines.push_back("GS_DEBUG=1");
+         }
+         else if (arg == "-v") verbose = true;
+         else if (arg == "--stats") stats = true;
+@@ -1687,6 +1698,7 @@ int Main(int argc, char **argv) {
+         TypeCheckProgram(ast, library, nocgen);
+         // The checker reported the errors it went on past, root by root.
+         if (!ast.errors.empty()) return 1;
++        if (optlevel < 0) optlevel = debuginfo ? 0 : 2;
+         Optimizer opt(ast, optlevel);
+         if (specs) {
+             string s;
+@@ -1753,7 +1765,7 @@ int Main(int argc, char **argv) {
+             if (string_view(rf.name) == "runtime_ext.h") runtime_ext_text = rf.text;
+         auto stackcfg = StackConfigOf(cdefines);
+         CodeGen cg(ast, runtime_ext_text, includes, norfcheck, library, shared,
+-                   stackcfg.maxstacks);
++                   stackcfg.maxstacks, debuginfo);
+         if (stacks) cg.StackReport(msgs, stackcfg);
+         // The packages whose native parts the program needs, which a JIT
+         // run takes functions from and a build links: its own, when it has
+@@ -1797,6 +1809,15 @@ int Main(int argc, char **argv) {
+             if (embedded)
+                 Append(out, "\nvoid gs_jit_cleanup(void) { free(gs_stks); gs_stks = NULL; "
+                             "gs_nstks = 0; }\n");
++            // -g's #line directives hand the C back to the C file
++            // after each function, by the name it is compiled under.
++            if (debuginfo) {
++                std::error_code ec;
++                auto cfile = outfile.empty() ? cat(PathStem(filename), ".c")
++                    : filesystem::absolute(filesystem::path(outfile), ec).lexically_normal()
++                          .generic_string();
++                out = CodeGen::ResetLines(out, cfile);
++            }
+             return out;
+         };
+         if (!outfile.empty() && !nocgen) {
+-- 
+2.50.1 (Apple Git-155)
+

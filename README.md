@@ -10,7 +10,8 @@ patches for its author, against the goose.git commit each one names.
 
 ## Layout
 
-- `patches/`: draft compiler patches, made with `git format-patch`.
+- `patches/`: draft compiler patches, made with `git format-patch`, in the
+  order they were written (and applied on goose.git's `debug1`).
   - `0001`: `#line` directives under `--debug`, so a debugger shows, steps
     and stops on the Goose source.
   - `0002`: `--debug` implies Goose `-O0` (no inlining) unless an `-O` is
@@ -30,6 +31,9 @@ patches for its author, against the goose.git commit each one names.
     blocks get their own lines; no resizable's count is cached, so a
     debugger sees the array as it is while a loop grows it; the map gains
     globals and what each function-value parameter is bound to.
+- `patches/upstream/`: the same final change as three patches for the
+  Goose author, each building and passing on its own: `-g` itself, the
+  debug map, and `goose run -g`'s backtraces.
 - `lldb/`: `goose_lldb.py`, LLDB summaries and synthetic children for Goose
   values, and its tests.
 - `tests/`: checks of the patched compiler: `line_directives.sh` through
