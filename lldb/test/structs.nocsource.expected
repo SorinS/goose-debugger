@@ -1,0 +1,33 @@
+@@ main_g structs.goose:24
+-- frame variable
+(Point_g) p_g = Point { x: 3, y: -4 }
+(Unit_g) u_g = Unit { kind: 1, hp: 99, pos: Point { x: 3, y: -4 }, tag: "hero" }
+(Color_g) c_g = Color #1
+(Shape_g_Circle_p) circle_g = Shape.Circle { r: 1.5 }
+(Shape_g_Rect_p) rect_g = Shape.Rect { w: 2, h: 3 }
+(Shape_g) dot_g = Shape #2 (tag names not in debug info)
+(gs_rhdr) shapes_g = len=2, element type not in debug info
+(uint8_t *) label_g = 0x_ <untyped bytes>
+-- goose-locals
+p = Point { x: 3, y: -4 }
+u = Unit { kind: 1, hp: 99, pos: Point { x: 3, y: -4 }, tag: "hero" }
+c = Color #1
+circle = Shape.Circle { r: 1.5 }
+rect = Shape.Rect { w: 2, h: 3 }
+dot = Shape #2 (tag names not in debug info)
+shapes = len=2, element type not in debug info
+label = 0x_
+-- frame variable u_g.pos_g.x_g
+(int32_t) u_g.pos_g.x_g = 3
+-- test-children circle_g
+circle_g: 1 children
+  r_g (double) = 1.5
+-- test-children rect_g
+rect_g: 2 children
+  w_g (double) = 2
+  h_g (double) = 3
+-- test-children dot_g
+dot_g: 2 children
+  tag (uint8_t) = 2
+  u (Shape_g::(unnamed union)) =
+Process exited with status = 0 (0x00000000)

@@ -1,0 +1,10 @@
+@@ main_g resizable.goose:12
+-- frame variable
+(gs_rhdr) nums_g = len=4, element type not in debug info
+(gs_rhdr) text_g = len=7, element type not in debug info
+(Stack_g) s_g = Stack { name: "main", depth: 2, items: len=2, element type not in debug info }
+-- goose-locals
+nums = len=4, element type not in debug info
+text = len=7, element type not in debug info
+s = Stack { name: "main", depth: 2, items: len=2, element type not in debug info }
+Process exited with status = 0 (0x00000000)

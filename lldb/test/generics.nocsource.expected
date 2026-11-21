@@ -1,0 +1,41 @@
+@@ main_g generics.goose:20
+-- frame variable
+(Pair_g_i64) p_g = Pair<i64> { a: 1, b: 2 }
+(Pair_g_f64) q_g = Pair<f64> { a: 0.5, b: 1.5 }
+(Opt_g_i64_Some_p) s_g = Opt<i64>.Some { v: 9 }
+(Opt_g_i64) o_g = Opt<i64> #1 (tag names not in debug info)
+(Opt_g_i64) e_g = Opt<i64> #0 (tag names not in debug info)
+(a3_i64) arr_g = [4, 5, 6]
+(View_g) v_g = View { name: "view", vals: [4, 5, 6] }
+-- goose-locals
+p = Pair<i64> { a: 1, b: 2 }
+q = Pair<f64> { a: 0.5, b: 1.5 }
+s = Opt<i64>.Some { v: 9 }
+o = Opt<i64> #1 (tag names not in debug info)
+e = Opt<i64> #0 (tag names not in debug info)
+arr = [4, 5, 6]
+v = View { name: "view", vals: [4, 5, 6] }
+-- test-children o_g
+o_g: 2 children
+  tag (uint8_t) = 1
+  u (Opt_g_i64::(unnamed union)) =
+-- test-children e_g
+e_g: 2 children
+  tag (uint8_t) = 0
+  u (Opt_g_i64::(unnamed union)) =
+-- test-children v_g
+v_g: 2 children
+  name_g (sl_u8) = "view"
+  vals_g (sl_i64) = [4, 5, 6]
+@@ sum_g generics.goose:9
+-- frame variable
+(sl_i64) xs_g = [4, 5, 6]
+(sl_u8) label_g = "view"
+(gs_i64) t_g = 15
+(gs_i64) x_g = 6
+-- goose-locals
+xs = [4, 5, 6]
+label = "view"
+t = 15
+x = 6
+Process exited with status = 0 (0x00000000)

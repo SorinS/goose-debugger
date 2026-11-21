@@ -40,7 +40,9 @@ lldb -o 'b prog.goose:12' -o run ./prog
 ## Status
 
 1. `#line` under `--debug`: done as draft patches 0001 and 0002.
-2. LLDB module: in progress.
-3. Debug map and DAP adapter: not started; step 2 lists what it must
-   supply.
+2. LLDB module: done (`lldb/`). Slices, arrays, text, structs, enums and
+   variants, references and optionals show as Goose values; resizables
+   show their length only. `lldb/README.md` lists what DWARF cannot tell.
+3. Debug map and DAP adapter: not started; `lldb/README.md`'s "What DWARF
+   cannot tell" is its specification.
 4. Backtraces in `goose run`: not started.
