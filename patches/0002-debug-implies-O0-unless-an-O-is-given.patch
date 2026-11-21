@@ -1,0 +1,111 @@
+From 64ff59911b520d078163c232f2d2b42c8a6039b8 Mon Sep 17 00:00:00 2001
+From: SorinS <ssuciu@gmail.com>
+Date: Sat, 21 Nov 2026 18:10:01 +0000
+Subject: [PATCH 2/2] --debug implies -O0 unless an -O is given
+
+Goose's inliner folds small functions into their callers, so under a
+debugger they have no frame: a breakpoint inside one stops in the caller,
+`finish` has nowhere to return to, and its parameters are not shown.
+--debug now leaves the inlining level at -O0 unless the command line
+names one; an explicit -O1 or -O2 still wins. Folding and propagation
+run at every level as before, and so does tail recursion into loops.
+
+Kept apart from the #line patch so either can be taken alone.
+
+Test: on a program whose main calls area() at line 9,
+
+    goose build --debug -o prog prog.goose
+    lldb --batch -o 'b prog.goose:2' -o run -o bt ./prog
+
+stops in area_g with its parameters, called from prog.goose:9.
+---
+ docs/command_line.md |  4 ++--
+ src/main.cpp         | 15 +++++++++------
+ 2 files changed, 11 insertions(+), 8 deletions(-)
+
+diff --git a/docs/command_line.md b/docs/command_line.md
+index b3dac6b5..eb806cb7 100644
+--- a/docs/command_line.md
++++ b/docs/command_line.md
+@@ -160,7 +160,7 @@ beyond those in [§5](#5-options-for-run-build-and-check):
+ | Option | What it does |
+ |---|---|
+ | `-o exe` | Where the executable goes. Its directory is made if needed. |
+-| `--debug` | Turn on the overflow, range and tag checks (`GS_DEBUG=1`), and build the C without optimization and with debug information (`/Od /Zi`, or `-O0 -g`), for a debugger. The C carries `#line` directives, so a debugger shows, steps and stops on the Goose source. |
++| `--debug` | Turn on the overflow, range and tag checks (`GS_DEBUG=1`), and build the C without optimization and with debug information (`/Od /Zi`, or `-O0 -g`), for a debugger. The C carries `#line` directives, so a debugger shows, steps and stops on the Goose source; and unless an `-O` says otherwise, Goose inlines nothing (`-O0`), so every function keeps a frame of its own. |
+ | `--cc name\|path` | The C compiler, as above. |
+ | `--standalone` | Compile the runtime into the program, rather than linking the runtime object built once per C compiler. |
+ | `--shared` | Build a self-contained shared library (`lib<stem>.so`, `lib<stem>.dylib` or `<stem>.dll`) instead of an executable. The library has no C `main`; `goose_init`, `goose_exit` and the program's `export fn` symbols are its host API ([reference §24](reference.md#24-calling-c-and-being-called-from-c)). This implies `--standalone`; `--header out.h` ([§8](#8-writing-the-c-yourself)) writes the host's header too. |
+@@ -195,7 +195,7 @@ These options have the same meaning for `goose run`, `goose build`,
+ 
+ | Option | What it does |
+ |---|---|
+-| `-O0`, `-O1`, `-O2` | How much the Goose compiler inlines: nothing, a little, or the most (the default). Constant folding and propagation run at every level, and a build's C compiler optimizes at every level. |
++| `-O0`, `-O1`, `-O2` | How much the Goose compiler inlines: nothing, a little, or the most (the default; `-O0` with `--debug`). Constant folding and propagation run at every level, and a build's C compiler optimizes at every level. |
+ | `--debug` | Turn on the overflow checks, the range checks of `as` casts and the tag checks (`GS_DEBUG=1`). Each failure names its source line, and an overflow or a cast names the values involved. A build also gets debug information ([§3](#3-building-an-executable)). |
+ | `-D NAME[=VALUE]` | Define a C macro in the generated program, as `-DNAME[=VALUE]` does too. The define is written into the C itself, so a run and a build see the same source. The value is 1 when none is given. |
+ | `--stack-reserve size` | The address space reserved for each data stack, from 64K up to 256T with a `K`, `M`, `G` or `T` suffix. The default is 2G. The address space is committed as it is used, so a large reservation costs nothing until it is used. |
+diff --git a/src/main.cpp b/src/main.cpp
+index 83441d2d..04cbb509 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -743,7 +743,7 @@ Commands:
+   help       Print this (or --help, -h); with a command, that command's help.
+ 
+ Common options:
+-  -O0, -O1, -O2   Inlining level (default -O2).
++  -O0, -O1, -O2   Inlining level (default -O2; -O0 with --debug).
+   --debug         Overflow, range and tag checks that name the source line
+                   they fail on.
+   --stats         Print what the compile did (declarations, bounds checks
+@@ -773,7 +773,7 @@ its exit code. What follows -- is the program's arguments. A program that
+ starts threads needs goose build.
+ 
+ Options:
+-  -O0, -O1, -O2         Inlining level (default -O2).
++  -O0, -O1, -O2         Inlining level (default -O2; -O0 with --debug).
+ )", DEBUGOPTION, COMPILEOPTIONS,
+ R"(  --cc name|path        The C compiler for packages' native parts: msvc,
+                         clang-cl, clang, gcc, cc or a path (or GOOSE_CC).
+@@ -790,8 +790,8 @@ go under GOOSE_HOME.
+ 
+ Options:
+   -o exe                Where the executable goes.
+-  -O0, -O1, -O2         Inlining level (default -O2). The C compiler
+-                        optimizes at every level, unless --debug.
++  -O0, -O1, -O2         Inlining level (default -O2; -O0 with --debug). The C
++                        compiler optimizes at every level, unless --debug.
+   --debug               Overflow, range and tag checks that name the source
+                         line they fail on, and the C built for a debugger.
+ )", COMPILEOPTIONS,
+@@ -921,7 +921,7 @@ Options:
+   --<package>-link msvc|cc
+                         Print the response file that links the native part of
+                         a package compiled into goose (--gfx-link cc).
+-  -O0, -O1, -O2         Inlining level (default -O2).
++  -O0, -O1, -O2         Inlining level (default -O2; -O0 with --debug).
+ )", DEBUGOPTION, COMPILEOPTIONS);
+     if (topic == "internals") return cat(
+ R"(usage: goose [options] file.goose
+@@ -1406,7 +1406,9 @@ int Main(int argc, char **argv) {
+     string ccrequest;
+     // The inlining at its highest. The C compiler optimizes whatever the
+     // level, unless --debug (Builder::CFlags).
+-    auto optlevel = 2;
++    // --debug keeps every function as a frame of its own: no inlining,
++    // unless an -O asks for it.
++    auto optlevel = -1;
+     vector<string> cdefines, progargs, includenames, files;
+     for (int i = firstarg; i < argc; i++) {
+         string arg = argv[i];
+@@ -1687,6 +1689,7 @@ int Main(int argc, char **argv) {
+         TypeCheckProgram(ast, library, nocgen);
+         // The checker reported the errors it went on past, root by root.
+         if (!ast.errors.empty()) return 1;
++        if (optlevel < 0) optlevel = debug ? 0 : 2;
+         Optimizer opt(ast, optlevel);
+         if (specs) {
+             string s;
+-- 
+2.50.1 (Apple Git-155)
+
