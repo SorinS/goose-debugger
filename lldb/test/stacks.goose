@@ -4,7 +4,7 @@ struct Rec { id: varint, name: u8[varint] }
 fn fill(out: i64[>..]&, n: i64) {
     var last: i64 = 0; // Before the loop, so a stop in it shows no uninitialized local.
     for i in n {
-        out.push(i * i); // BREAK when t7 == 3 lldb: frame variable t7; goose-as out_g i64; p *(gs_i64(*)[3])out_g.hdr->base
+        out.push(i * i); // BREAK when out_g.hdr->len == 3 lldb: frame variable out_g.hdr->len; goose-as out_g i64; p *(gs_i64(*)[3])out_g.hdr->base
     }
     last = out.len;
     if last < 0 { print(last); } // BREAK

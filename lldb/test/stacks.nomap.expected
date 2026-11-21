@@ -1,18 +1,21 @@
 @@ fill_g stacks.goose:7
 -- frame variable
 (gs_i64) n_g = 4
-(gs_rref) out_g = len=0, element type not in debug info
+(gs_rref) out_g = len=3, element type not in debug info
 (gs_i64) last_g = 0
 (gs_i64) i_g = 3
 -- goose-locals
 n = 4
-out = len=0, element type not in debug info
+out = len=3, element type not in debug info
 last = 0
 i = 3
--- frame variable t7
-(int64_t) t7 = 3
+-- frame variable out_g.hdr->len
+(int64_t) out_g.hdr->len = 3
 -- goose-as out_g i64
-len=0
+len=3
+  [0] = 0
+  [1] = 1
+  [2] = 4
 -- p *(gs_i64(*)[3])out_g.hdr->base
 (gs_i64[3])  ([0] = 0, [1] = 1, [2] = 4)
 @@ fill_g stacks.goose:10

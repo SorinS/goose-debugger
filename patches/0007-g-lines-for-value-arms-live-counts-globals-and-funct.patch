@@ -1,0 +1,201 @@
+From 5cb1aab29dc8f3b2e32802a28217a5e987f27601 Mon Sep 17 00:00:00 2001
+From: SorinS <ssuciu@gmail.com>
+Date: Sat, 21 Nov 2026 23:02:38 +0000
+Subject: [PATCH] -g: lines for value arms, live counts, globals and function
+ values in the map
+
+- A value that stands in a statement's place -- a function's tail, a
+  block's, a match arm -- is emitted under its own line (GenAt), as a
+  statement is: a function whose body is a match charged every arm to
+  the `fn` line, which no breakpoint could then name.
+- No resizable's count is cached under -g (NoteLen): every push writes
+  the header, so a debugger shows the array as it is, in the frame that
+  grows it and in every caller's, and a global's likewise. The data
+  stack's top may still be cached; nothing shows it.
+- The debug map gains "globals" (each global's C member of gs_globals_t,
+  Goose name, type and line, and whether threads reach their own copy
+  through gs_gl) and, on a function instance, "fnvals": what each
+  function-value parameter is bound to, a named function or a block.
+
+Test: a match's arms take a breakpoint each; inside a loop that pushes,
+the array shows its elements so far from both frames; the C without -g,
+and with --debug alone, is unchanged.
+---
+ src/codegen.h          | 10 +++++++++
+ src/codegen_debugmap.h | 49 ++++++++++++++++++++++++++++++++++++++++--
+ src/codegen_emit.h     |  3 +++
+ src/codegen_frames.h   |  4 ++++
+ src/codegen_nodes.h    |  4 ++--
+ src/codegen_stmts.h    |  5 ++++-
+ 6 files changed, 70 insertions(+), 5 deletions(-)
+
+diff --git a/src/codegen.h b/src/codegen.h
+index 8e76c2d4..22badf47 100644
+--- a/src/codegen.h
++++ b/src/codegen.h
+@@ -1173,6 +1173,16 @@ struct CodeGen {
+         else n->CgAny(*this, d);
+     }
+     void GenStmt2(Node *n) { n->CgStmt(*this); }
++    // GenAny for a value that stands in a statement's place -- a block's
++    // tail, a function's, a match arm's -- under the value's own line, as
++    // GenStmt puts a statement under its line (-g): a function whose body
++    // is a match would charge every arm to the `fn` line.
++    void GenAt(Node *n, Dst d) {
++        auto outer = srcline;
++        if (linedirs && n->line.line > 0) srcline = n->line;
++        GenAny(n, d);
++        srcline = outer;
++    }
+ 
+     string CtlValX(Node *n);
+     void LeafAny(Node *n, const Dst &d);
+diff --git a/src/codegen_debugmap.h b/src/codegen_debugmap.h
+index 127c9e28..9e6b5eed 100644
+--- a/src/codegen_debugmap.h
++++ b/src/codegen_debugmap.h
+@@ -9,8 +9,11 @@
+ // types name. Included after json.h, whose JsonQuote it writes with.
+ //
+ //   { "version": 1,
++//     "globals": { "block": "gs_globals_t", "main": "gs_globals_main", "thread": null,
++//                  "vars": [ { "c": "log_g", "name": "log", "type": "u8[>..]",
++//                              "file": "/abs/prog.goose", "line": 2 } ] },
+ //     "functions": [ { "c": "area_g", "name": "geo::area", "file": "/abs/geo.goose",
+-//                      "line": 3, "end": 7, "bindings": { "T": "i64" },
++//                      "line": 3, "end": 7, "bindings": { "T": "i64" }, "fnvals": { "F": "inc" },
+ //                      "locals": [ { "c": "w_g", "name": "w", "type": "i64",
+ //                                    "param": true, "line": 3, "end": 7 } ] } ],
+ //     "types": [ { "c": "Point_g", "name": "Point", "kind": "struct",
+@@ -49,6 +52,22 @@ inline void CodeGen::MapFunction(FnSpec *sp, const string &cname) {
+         }
+         s += " }";
+     }
++    // What each function-value parameter is bound to: the named function's
++    // qualified name, or "{fn line N}" for a block (a function value
++    // written in place), so twice<inc> and twice<{...}> can be told apart.
++    if (!sp->fnvals.empty()) {
++        s += ", \"fnvals\": {";
++        for (size_t i = 0; i < sp->fnvals.size(); i++) {
++            auto &[g, b] = sp->fnvals[i];
++            s += i ? ", " : " ";
++            JsonQuote(s, g);
++            s += ": ";
++            if (b.named) JsonQuote(s, b.named->qname);
++            else if (b.fv) JsonQuote(s, cat("{fn line ", b.fv->line.line, "}"));
++            else s += "null";
++        }
++        s += " }";
++    }
+     s += ",\n      \"locals\": [";
+     // In the order the C declares them, which is the order they were named.
+     vector<pair<const VarDef *, string>> locals(vnames.begin(), vnames.end());
+@@ -144,7 +163,33 @@ inline void CodeGen::MapType(TypeExpr *t) {
+ }
+ 
+ inline string CodeGen::DebugMap() {
+-    string s = "{ \"version\": 1,\n  \"functions\": [\n";
++    // The globals are members of one block, gs_globals_t: the main
++    // program's is gs_globals_main, and each thread's own is behind gs_gl
++    // when the program starts threads.
++    string gs;
++    for (auto g : ast.globals) {
++        for (auto d : g->defs) {
++            auto it = gnames.find(d);
++            if (it == gnames.end() || !d->type || it->second.compare(0, 7, "GS_GL->") != 0) continue;
++            string t, q = g->ns.empty() ? string(d->name) : cat(g->ns, "::", d->name);
++            d->type->Dump(t);
++            gs += gs.empty() ? "\n    { \"c\": " : ",\n    { \"c\": ";
++            JsonQuote(gs, it->second.substr(7));
++            gs += ", \"name\": ";
++            JsonQuote(gs, q);
++            gs += ", \"type\": ";
++            JsonQuote(gs, t);
++            gs += ", \"file\": ";
++            JsonQuote(gs, SourcePath(d->line.fileidx));
++            Append(gs, ", \"line\": ", d->line.line, " }");
++            MapType(d->type);
++        }
++    }
++    string s = "{ \"version\": 1,\n  \"globals\": { \"block\": \"gs_globals_t\", "
++               "\"main\": \"gs_globals_main\", \"thread\": ";
++    s += usesthreads ? "\"gs_gl\"" : "null";
++    Append(s, ", \"vars\": [", gs, gs.empty() ? "] },\n" : " ] },\n");
++    s += "  \"functions\": [\n";
+     Append(s, mapfns, "\n  ],\n  \"types\": [\n");
+     bool first = true;
+     for (auto &[name, obj] : maptypes) {
+diff --git a/src/codegen_emit.h b/src/codegen_emit.h
+index 17cae1b7..8a651208 100644
+--- a/src/codegen_emit.h
++++ b/src/codegen_emit.h
+@@ -706,7 +706,10 @@ inline void CodeGen::EmitSpec(FnSpec *sp, bool er) {
+         if (auto fi = Is<IfExpr>(tail); fi && !fi->elseb) asvalue = false;
+         if (asvalue && !IsVoidT(tail->exprtype)) {
+             vector<Node *> vals = { tail };
++            auto outer = srcline;   // The tail's own line, as GenAt gives it.
++            if (linedirs && tail->line.line > 0) srcline = tail->line;
+             GenNormalReturn(vals);
++            srcline = outer;
+         } else {
+             GenStmt(tail);
+         }
+diff --git a/src/codegen_frames.h b/src/codegen_frames.h
+index 6475a8d8..233057c3 100644
+--- a/src/codegen_frames.h
++++ b/src/codegen_frames.h
+@@ -805,6 +805,10 @@ inline string_view CodeGen::NextLine(const string &b, size_t &i, size_t &ind0) {
+ // The count a growth site writes, for caching with the stack's top when its
+ // header qualifies (LenSlot).
+ inline void CodeGen::NoteLen(const string &stk, const string &lenlv, const string &component) {
++    // Under -g a count is written where it changes: a debugger reads the
++    // header, in this frame and in every caller's, and a cached count would
++    // show the array empty until the extent ends.
++    if (linedirs) return;
+     string root = component;
+     if (!CacheableStk(stk) || (root.empty() && !LenRoot(lenlv, root))) return;
+     auto k = TopIdx(stk);
+diff --git a/src/codegen_nodes.h b/src/codegen_nodes.h
+index 188e18ad..75070a07 100644
+--- a/src/codegen_nodes.h
++++ b/src/codegen_nodes.h
+@@ -567,7 +567,7 @@ inline void MatchExpr::CgAny(CodeGen &cg, const Dst &d) {
+             first = false;
+             cg.ind++;
+             cg.PushSc(CodeGen::SC_PLAIN);
+-            cg.GenAny(arm.body, d);
++            cg.GenAt(arm.body, d);
+             cg.PopSc();
+             cg.ind--;
+         }
+@@ -646,7 +646,7 @@ inline void MatchExpr::CgAny(CodeGen &cg, const Dst &d) {
+             }
+             cg.vnames[arm.binder] = bn;
+         }
+-        cg.GenAny(arm.body, d);
++        cg.GenAt(arm.body, d);
+         cg.PopSc();
+         cg.ind--;
+         cg.L("} break;");
+diff --git a/src/codegen_stmts.h b/src/codegen_stmts.h
+index c0db44f7..66766dd7 100644
+--- a/src/codegen_stmts.h
++++ b/src/codegen_stmts.h
+@@ -15,10 +15,13 @@ inline void CodeGen::GenBlockInner(Block *b, Dst d, size_t first, int exitscope)
+     if (b->tail && !IsVoidT(b->tail->exprtype) && d.k != DK_DISCARD) {
+         // An inlined body's tail is a return too: another named result may
+         // already occupy its destination, just as at an explicit return.
++        auto outer = srcline;
++        if (linedirs && b->tail->line.line > 0) srcline = b->tail->line;
+         if (exitscope >= 0) GenExitValue(b->tail, exitscope);
+         else GenAny(b->tail, d);
++        srcline = outer;
+     }
+-    else if (b->tail) GenAny(b->tail, Dst {});
++    else if (b->tail) GenAt(b->tail, Dst {});
+     if (linedirs) blockends.pop_back();
+     MarkLoopEnd(region);
+ }
+-- 
+2.50.1 (Apple Git-155)
+

@@ -379,16 +379,13 @@ five elements.
 live length (and the live top) of which Goose variable, over which lines.
 The alternative is for `--debug` to write the header back at every push.
 
-**With the map:** not covered; the elements are now shown, but from the
-stale `len` (`out: i64[>..]& = []` with three pushed). Reading the cached
-temporaries would work in the frame that holds them (`frame variable t7`
-reads 3, and `t7 == 3` works as a breakpoint condition), but not from any
-other frame: stopped in `fill`'s loop, `up` to `main` shows
-`squares: i64[>..] = []`, and nothing in `main`'s frame says that `fill`
-holds the live length of the array `squares` names. The same goes for a
-global cached over a function (`t48`), seen from a function it calls.
-Writing the header back at every push under `--debug` fixes every frame
-and every debugger (and a natvis file) at once.
+**Fixed by patch 0007:** under `-g` the compiler caches no count, so
+every push writes the header. Stopped in `fill`'s loop after three pushes,
+`out: i64[>..]& = [0, 1, 4]`, and `up` in `main`,
+`squares: i64[>..] = [0, 1, 4]`; a global is current in the same way
+(`pool = len=2` with its elements). The data-stack top may still be
+cached; nothing shows it. The breakpoint condition in `stacks.goose` is
+now `out_g.hdr->len == 3`.
 
 ### 3. Variable-size values: a bare `uint8_t *`
 
@@ -617,7 +614,11 @@ gs_globals_main` does, with these formatters applied to the fields.
 **The map needs:** the globals' Goose names and types, and, for workers,
 that they are reached through `gs_gl`.
 
-**With the map:** not covered: version 1 has no globals.
+**With the map (patch 0007):** the map's `globals` names each one, with
+its Goose type and C member, and says whether threads reach their own
+copy through `gs_gl`. `goose-globals` prints them as `name: type = value`
+(`pool: PNode[>..] = [PNode { v: 1, next: null }, ...]`), from the main
+program's instance or, under threads, the selected thread's.
 
 ## Notes for step 1
 

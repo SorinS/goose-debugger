@@ -19,9 +19,11 @@ r = 0x_
 count = 1
 cur = Cursor { line: 1, flag: 1 }
 gs_pb_pool = 0x_
+-- goose-globals
+no debug map
 -- target variable gs_globals_main
 (gs_globals_t) gs_globals_main = {
-  pool_g = len=0, element type not in debug info
+  pool_g = len=2, element type not in debug info
   gs_gstk_pool_g = {
     top = 0x_ <untyped bytes>
   }
@@ -31,7 +33,9 @@ gs_pb_pool = 0x_
   }
 }
 -- goose-as gs_globals_main.pool_g PNode_g
-len=0
+len=2
+  [0] = PNode { v: 1, next: 0 }
+  [1] = PNode { v: 2, next: 1 }
 -- p *(PNode_g(*)[2])gs_globals_main.pool_g.base
 (PNode_g[2]) {
   [0] = PNode { v: 1, next: 0 }

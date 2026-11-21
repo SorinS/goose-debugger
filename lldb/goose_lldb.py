@@ -388,7 +388,15 @@ class GooseMap:
         self.funcs = {}
         self.types = {}
         self.types_by_c = {}
+        self.globals = []          # The map's globals.vars, every compile unit's.
+        self.globals_main = "gs_globals_main"
+        self.globals_thread = None   # "gs_gl" when the program starts threads.
         for d in docs:
+            g = d.get("globals")
+            if isinstance(g, dict):
+                self.globals += g.get("vars", [])
+                self.globals_main = g.get("main") or self.globals_main
+                self.globals_thread = g.get("thread") or self.globals_thread
             for f in d.get("functions", []):
                 self.funcs.setdefault(f.get("c"), f)
             for t in d.get("types", []):
@@ -1453,6 +1461,44 @@ def _locals_from_map(frame, gmap, f, result):
         result.AppendMessage("%s: %s = %s" % (l["name"], l["type"], _clip(txt)))
 
 
+def cmd_globals(debugger, command, exe_ctx, result, internal_dict):
+    """goose-globals: the program's Goose globals, `name: type = value`, from
+    the debug map: the main program's instance, or under threads the
+    selected thread's own (gs_gl)."""
+    try:
+        target = exe_ctx.GetTarget()
+        gmap = get_map(target)
+        if gmap is None or not gmap.globals:
+            result.AppendMessage("no globals in the debug map" if gmap else "no debug map")
+            return
+        block = None
+        frame = exe_ctx.GetFrame()
+        if gmap.globals_thread and frame.IsValid():
+            p = frame.EvaluateExpression("(gs_globals_t *)%s" % gmap.globals_thread)
+            if p.IsValid() and not p.GetError().Fail() and p.GetValueAsUnsigned():
+                block = p.Dereference()
+        if block is None:
+            block = target.FindFirstGlobalVariable(gmap.globals_main)
+        if not block.IsValid():
+            result.SetError("no %s in the debug info" % gmap.globals_main)
+            return
+        dec = Decoder(target, gmap)
+        for g in gmap.globals:
+            v = block.GetChildMemberWithName(g["c"])
+            if not v.IsValid():
+                result.AppendMessage("%s: %s = <not in the debug info>" % (g["name"], g["type"]))
+                continue
+            t = parse_type(g["type"])
+            addr = value_location(v.GetNonSyntheticValue(), t)
+            try:
+                txt = dec.text(addr, t)[0] if addr is not None else value_text(v)
+            except Exception as e:
+                txt = "<%s>" % e
+            result.AppendMessage("%s: %s = %s" % (g["name"], g["type"], _clip(txt)))
+    except Exception as e:
+        result.SetError("goose-globals: %s" % e)
+
+
 def frame_name(frame, internal_dict=None):
     """A frame's function under its Goose name, with the type arguments of a
     generic instance: from the debug map, else the C name. For frame-format:
@@ -1463,7 +1509,8 @@ def frame_name(frame, internal_dict=None):
         f = gmap.funcs.get(cname) if gmap else None
         if f is None:
             return cname or (frame.GetSymbol().GetName() or "???")
-        b = f.get("bindings")
+        b = dict(f.get("bindings") or {})
+        b.update(f.get("fnvals") or {})
         if b:
             return "%s<%s>" % (f["name"], ", ".join("%s=%s" % kv for kv in b.items()))
         return f["name"]
@@ -1602,4 +1649,5 @@ def __lldb_init_module(debugger, internal_dict):
     debugger.HandleCommand("command script add -o -f %s.cmd_locals goose-locals" % mod)
     debugger.HandleCommand("command script add -o -f %s.cmd_as goose-as" % mod)
     debugger.HandleCommand("command script add -o -f %s.cmd_bt goose-bt" % mod)
+    debugger.HandleCommand("command script add -o -f %s.cmd_globals goose-globals" % mod)
     debugger.HandleCommand("command script add -o -f %s.cmd_frame_format goose-frame-format" % mod)

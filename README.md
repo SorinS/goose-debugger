@@ -26,6 +26,10 @@ patches for its author, against the goose.git commit each one names.
     `-g` (or `--debug-info`), which also turns on `--debug`'s checks.
     `--debug` alone is again what it is upstream: the checks and C debug
     information, with the same C as without the patches.
+  - `0007`: under `-g`, the arms of a `match` and the tails of functions and
+    blocks get their own lines; no resizable's count is cached, so a
+    debugger sees the array as it is while a loop grows it; the map gains
+    globals and what each function-value parameter is bound to.
 - `lldb/`: `goose_lldb.py`, LLDB summaries and synthetic children for Goose
   values, and its tests.
 - `tests/`: checks of the patched compiler: `line_directives.sh` through
@@ -83,9 +87,10 @@ lldb -o 'b prog.goose:12' -o run ./prog
    `goose_lldb.py` reads it: Goose names and scopes (`goose-locals`,
    `goose-bt`, `goose-frame-format`), resizables' elements, variable-size
    values decoded, tag names, `T&`/`T?`/relative references and `bool`.
-   Not yet: globals, live lengths while a resizable grows, function-value
-   instances. The `goose dap` proxy is not started;
-   `docs/idea_integration.md` lists what it must do.
+   With 0007 also globals (`goose-globals`), live lengths while a resizable
+   grows, and function-value instances (`twice<F=inc>`). The `goose dap`
+   proxy is in progress in `dap/`; `docs/idea_integration.md` lists what
+   it must do.
 4. Backtraces in `goose run`: done as draft patch 0004 (also on
    `debug1`). Tested on macOS arm64 only; `tests/backtrace.sh` should be
    run on Linux.
