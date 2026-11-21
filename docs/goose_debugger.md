@@ -117,6 +117,15 @@ Once `#line` exists, TinyCC's `tcc_set_backtrace_func` can print Goose
 files and lines when a JIT-run program crashes, on ELF and Mach-O. This
 helps everyone who uses `goose run` and never opens a debugger.
 
+Done as patch 0004. Under `goose run --debug` a runtime abort (bounds,
+overflow, assert) or a crash prints the Goose frames after the usual
+message, innermost first, with Goose names (`at geo::area (geo.goose:5)`).
+TinyCC compiles with line information only (`-bt -g1dwarf`); three small
+TinyCC fixes were needed, recorded in its README in goose.git. Tested on
+macOS arm64; Linux uses TinyCC's ordinary ELF path but has not been run.
+Windows is left as it was, since TinyCC's PE target would link its
+backtrace object into every in-memory run.
+
 ## The hard parts
 
 - **Data stacks.** Many locals do not live on the C stack. They live on
