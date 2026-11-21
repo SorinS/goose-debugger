@@ -58,7 +58,15 @@ lldb -o 'b prog.goose:12' -o run ./prog
   LLDB. The abort backtraces of 0004 need the compiler's
   `jit_runtime.c` built with frame pointers (0004 does that); crash
   backtraces work without.
-- **Windows**: being checked.
+- **Windows** (Server 2022, MSVC 19.44; cdb 10.0.26100, LLDB 23.1 on PDB):
+  patches 0001-0004 work. `goose build --debug` writes a PDB beside the
+  exe; cdb and LLDB bind breakpoints to Goose lines (one location per
+  line, each time round a loop), step by Goose line and show `.goose`
+  frames, `area_g` keeping its own frame. The compiler suite passes, and
+  714 test programs built with `--debug` print what `goose run --debug`
+  prints. cdb needs `sxd av`: the runtime commits its stacks from a
+  vectored exception handler, which cdb otherwise stops on. 0004's
+  backtraces are off on Windows by design.
 
 ## Status
 
