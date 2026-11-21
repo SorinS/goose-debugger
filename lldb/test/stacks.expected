@@ -1,14 +1,14 @@
 @@ fill_g stacks.goose:7
 -- frame variable
 (gs_i64) n_g = 4
-(gs_rref) out_g = len=0, element type not in debug info
+(gs_rref) out_g = []
 (gs_i64) last_g = 0
 (gs_i64) i_g = 3
 -- goose-locals
-n = 4
-out = len=0, element type not in debug info
-last = 0
-i = 3
+n: i64 = 4
+out: i64[>..]& = []
+last: i64 = 0
+i: i64 = 3
 -- frame variable t7
 (int64_t) t7 = 3
 -- goose-as out_g i64
@@ -18,29 +18,29 @@ len=0
 @@ fill_g stacks.goose:10
 -- frame variable
 (gs_i64) n_g = 4
-(gs_rref) out_g = len=4, element type not in debug info
+(gs_rref) out_g = [0, 1, 4, 9]
 (gs_i64) last_g = 4
 (gs_i64) i_g = 4
 -- goose-locals
-n = 4
-out = len=4, element type not in debug info
-last = 4
-i = 4
+n: i64 = 4
+out: i64[>..]& = [0, 1, 4, 9]
+last: i64 = 4
+i: i64 = 4
 @@ main_g stacks.goose:23
 -- frame variable
-(gs_rhdr) squares_g = len=4, element type not in debug info
-(uint8_t *) frozen_g = 0x_ <untyped bytes>
-(uint8_t *) word_g = 0x_ <untyped bytes>
-(uint8_t *) rec_g = 0x_ <untyped bytes>
-(gs_rhdr) words_g = len=2, element type not in debug info
-(gs_rhdr) msg_g = len=3, element type not in debug info
+(gs_rhdr) squares_g = [0, 1, 4, 9]
+(uint8_t *) frozen_g = 0x_ [7, 8, 9]
+(uint8_t *) word_g = 0x_ "frozen"
+(uint8_t *) rec_g = 0x_ Rec { id: 300, name: "rec" }
+(gs_rhdr) words_g = ["one", "two"]
+(gs_rhdr) msg_g = "n=4"
 -- goose-locals
-squares = len=4, element type not in debug info
-frozen = 0x_
-word = 0x_
-rec = 0x_
-words = len=2, element type not in debug info
-msg = len=3, element type not in debug info
+squares: i64[>..] = [0, 1, 4, 9]
+frozen: i64[] = [7, 8, 9]
+word: u8[] = "frozen"
+rec: Rec = Rec { id: 300, name: "rec" }
+words: u8[][>..] = ["one", "two"]
+msg: u8[>..] = "n=4"
 -- goose-as msg_g u8
 len=3 "n=4"
 -- goose-as word_g u8[]

@@ -1,0 +1,61 @@
+@@ main_g layouts.goose:25
+-- frame variable
+(r_PNode_g) second_g = 0x_ PNode { v: 2, next: 1 }
+(uint8_t *) sized_g = 0x_ <untyped bytes>
+(uint8_t *) short_g = 0x_ <untyped bytes>
+(uint8_t *) c_g = 0x_ <untyped bytes>
+(a4_Shape_g) fs_g = [Shape.Dot, Shape.Dot, Shape.Dot, Shape.Dot]
+(uint8_t *) r_g = 0x_ <untyped bytes>
+(gs_i64) count_g = 1
+(Cursor_g) cur_g = Cursor { line: 1, flag: 1 }
+(uint8_t *) gs_pb_pool_g = 0x_ <untyped bytes>
+-- goose-locals
+second = PNode { v: 2, next: 1 }
+sized = 0x_
+short = 0x_
+c = 0x_
+fs = [Shape.Dot, Shape.Dot, Shape.Dot, Shape.Dot]
+r = 0x_
+count = 1
+cur = Cursor { line: 1, flag: 1 }
+gs_pb_pool = 0x_
+-- target variable gs_globals_main
+(gs_globals_t) gs_globals_main = {
+  pool_g = len=0, element type not in debug info
+  gs_gstk_pool_g = {
+    top = 0x_ <untyped bytes>
+  }
+  log_g = len=1, element type not in debug info
+  gs_gstk_log_g = {
+    top = 0x_ <untyped bytes>
+  }
+}
+-- goose-as gs_globals_main.pool_g PNode_g
+len=0
+-- p *(PNode_g(*)[2])gs_globals_main.pool_g.base
+(PNode_g[2]) {
+  [0] = PNode { v: 1, next: 0 }
+  [1] = PNode { v: 2, next: 1 }
+}
+-- memory read -s1 -c9 -fu c_g
+0x_: 0
+0x_: 0
+0x_: 0
+0x_: 0
+0x_: 0
+0x_: 0
+0x_: 0
+0x_: 0
+0x_: 64
+-- test-children cur_g
+cur_g: 2 children
+  line_g (gs_i64 *) = 0x_
+  flag_g (uint8_t) = 1
+-- test-children r_g
+r_g: 1 children
+  *r_g (uint8_t) = 10
+-- test-children c_g
+c_g: 1 children
+  *c_g (uint8_t) = 0
+2x[3]hiCircle { 2.0 }[Shape.Dot, Shape.Dot, Shape.Dot, Shape.Dot]51true
+Process exited with status = 0 (0x00000000)

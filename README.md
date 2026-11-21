@@ -19,6 +19,9 @@ patches for its author, against the goose.git commit each one names.
     loop's body stops each time round.
   - `0004`: `goose run --debug` prints Goose frames (`at fn (file.goose:N)`)
     after a runtime abort or a crash. macOS arm64 tested; Linux untested.
+  - `0005`: `--debug` writes `<stem>.debug.json` beside the C: the Goose
+    names, types and scopes of functions and locals, and the fields and
+    variants of their types.
 - `lldb/`: `goose_lldb.py`, LLDB summaries and synthetic children for Goose
   values, and its tests.
 - `tests/`: checks of the patched compiler: `line_directives.sh` through
@@ -50,8 +53,13 @@ lldb -o 'b prog.goose:12' -o run ./prog
 2. LLDB module: done (`lldb/`). Slices, arrays, text, structs, enums and
    variants, references and optionals show as Goose values; resizables
    show their length only. `lldb/README.md` lists what DWARF cannot tell.
-3. Debug map and DAP adapter: not started; `lldb/README.md`'s "What DWARF
-   cannot tell" is its specification.
+3. Debug map and DAP adapter: the map is patch 0005 (also on `debug1`) and
+   `goose_lldb.py` reads it: Goose names and scopes (`goose-locals`,
+   `goose-bt`, `goose-frame-format`), resizables' elements, variable-size
+   values decoded, tag names, `T&`/`T?`/relative references and `bool`.
+   Not yet: globals, live lengths while a resizable grows, function-value
+   instances. The `goose dap` proxy is not started;
+   `docs/idea_integration.md` lists what it must do.
 4. Backtraces in `goose run`: done as draft patch 0004 (also on
    `debug1`). Tested on macOS arm64 only; `tests/backtrace.sh` should be
    run on Linux.

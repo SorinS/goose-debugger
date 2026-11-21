@@ -1,41 +1,52 @@
+@@ main_g arrays.goose:11
+-- goose-locals
+fixed: i32[4] = [1, 2, 3, 4]
+grow: i64[>..] = [10, 20, 30, 40, 50]
+view: i64[:] = [20, 30, 40]
+bytes: u8[:] = "goose\x00\x01\x02"
+lit: const u8[:] = "hello, goose"
+name: u8[..16] = ""
 @@ main_g arrays.goose:14
 -- frame variable
 (a4_i32) fixed_g = [1, 2, 3, 4]
-(gs_rhdr) grow_g = len=5, element type not in debug info
+(gs_rhdr) grow_g = [10, 20, 30, 40, 50]
 (sl_i64) view_g = [20, 30, 40]
 (sl_u8) bytes_g = "goose\x00\x01\x02"
 (sl_u8) lit_g = "hello, goose"
 (l16_u8) name_g = "ada"
-(uint8_t *) frozen_g = 0x_ <untyped bytes>
+(uint8_t *) frozen_g = 0x_ [7, 8, 9]
 (gs_i64) n_g = 26
 -- goose-locals
-fixed = [1, 2, 3, 4]
-grow = len=5, element type not in debug info
-view = [20, 30, 40]
-bytes = "goose\x00\x01\x02"
-lit = "hello, goose"
-name = "ada"
-frozen = 0x_
-n = 26
+fixed: i32[4] = [1, 2, 3, 4]
+grow: i64[>..] = [10, 20, 30, 40, 50]
+view: i64[:] = [20, 30, 40]
+bytes: u8[:] = "goose\x00\x01\x02"
+lit: const u8[:] = "hello, goose"
+name: u8[..16] = "ada"
+frozen: i64[] = [7, 8, 9]
+n: i64 = 26
 -- frame variable view_g[1] fixed_g[2] name_g[0] view_g.len
-(gs_i64) view_g[1] = 30
+(int64_t) view_g[1] = 30
 (int32_t) fixed_g[2] = 3
 (uint8_t) name_g[0] = 97
 (int64_t) view_g.len = 3
 -- test-children view_g
 view_g: 3 children
-  [0] (gs_i64) = 20
-  [1] (gs_i64) = 30
-  [2] (gs_i64) = 40
+  [0] (int64_t) = 20
+  [1] (int64_t) = 30
+  [2] (int64_t) = 40
 -- test-children name_g
 name_g: 3 children
   [0] (uint8_t) = 97
   [1] (uint8_t) = 100
   [2] (uint8_t) = 97
 -- test-children grow_g
-grow_g: 2 children
-  base (uint8_t *) = <untyped bytes>
-  len (int64_t) = 5
+grow_g: 5 children
+  [0] (int64_t) = 10
+  [1] (int64_t) = 20
+  [2] (int64_t) = 30
+  [3] (int64_t) = 40
+  [4] (int64_t) = 50
 -- goose-as grow_g i64
 len=5
   [0] = 10

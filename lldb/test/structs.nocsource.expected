@@ -30,5 +30,12 @@ rect_g: 2 children
 dot_g: 2 children
   tag (uint8_t) = 2
   u (Shape_g::(unnamed union)) =
+-- test-children label_g
+label_g: 1 children
+  *label_g (uint8_t) = 0
+-- test-children shapes_g
+shapes_g: 2 children
+  base (uint8_t *) = <untyped bytes>
+  len (int64_t) = 2
 Point { 3, -4 } Unit { 1, 99, Point { 3, -4 }, "hero" } Color.Green 12.75 Label { "hi" } [Circle { 1.5 }, Rect { 2.0, 3.0 }]
 Process exited with status = 0 (0x00000000)

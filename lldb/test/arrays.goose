@@ -8,7 +8,7 @@ fn main() {
     let bytes: u8[:] = fixed_bytes();
     let lit: const u8[:] = "hello, goose";
     var name: u8[..16] = [];
-    format(name, "ada");
+    format(name, "ada"); // BREAK maponly lldb only: goose-locals
     let frozen: i64[] = [7, 8, 9];
     let n = use(view, lit) + bytes.len + frozen.len;
     print(fixed, " ", view, " ", lit, " ", name, " ", n); // BREAK lldb: frame variable view_g[1] fixed_g[2] name_g[0] view_g.len; test-children view_g; test-children name_g; test-children grow_g; goose-as grow_g i64; goose-as frozen_g i64[]; goose-as fixed_g i32

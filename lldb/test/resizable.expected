@@ -1,12 +1,24 @@
 @@ main_g resizable.goose:12
 -- frame variable
-(gs_rhdr) nums_g = len=4, element type not in debug info
+(gs_rhdr) nums_g = [0, 3, 6, 9]
 (gs_i64) i_g = 4
-(gs_rhdr) text_g = len=7, element type not in debug info
-(Stack_g) s_g = Stack { name: "main", depth: 2, items: len=2, element type not in debug info }
+(gs_rhdr) text_g = "grow 42"
+(Stack_g) s_g = Stack { name: "main", depth: 2, items: [7, 9] }
 -- goose-locals
-nums = len=4, element type not in debug info
-i = 4
-text = len=7, element type not in debug info
-s = Stack { name: "main", depth: 2, items: len=2, element type not in debug info }
+nums: u32[>..] = [0, 3, 6, 9]
+i: i64 = 4
+text: u8[>..] = "grow 42"
+s: Stack = Stack { name: "main", depth: 2, items: [7, 9] }
+-- test-children s_g
+s_g: 3 children
+  name (l8_u8) = "main"
+  depth (int32_t) = 2
+  items (gs_rhdr) = [7, 9]
+-- frame variable s_g.items_g
+(gs_rhdr) s_g.items_g = [7, 9]
+-- test-children s_g.items_g
+s_g.items_g: 2 children
+  [0] (int64_t) = 7
+  [1] (int64_t) = 9
+[0, 3, 6, 9] grow 42 main [7, 9]
 Process exited with status = 0 (0x00000000)

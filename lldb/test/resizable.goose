@@ -9,5 +9,5 @@ fn main() {
     var s = Stack { name: "main", depth: 2, items: [] };
     s.items.push(7);
     s.items.push(9);
-    print(nums, " ", text, " ", s.name, " ", s.items); // BREAK
+    print(nums, " ", text, " ", s.name, " ", s.items); // BREAK2 lldb: test-children s_g; frame variable s_g.items_g; test-children s_g.items_g
 }

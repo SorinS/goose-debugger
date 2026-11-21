@@ -2,12 +2,18 @@
 
 Step 2 of [the debugger plan](../docs/goose_debugger.md): a Python module
 that shows the C that Goose generates as Goose values, in LLDB and in
-editors that drive LLDB. It needs no compiler change. It is most useful
-with a compiler that emits `#line` under `--debug` (step 1), so that
+editors that drive LLDB. It works with any compiler, and is most useful
+with one that emits `#line` under `--debug` (patches 0001-0003), so that
 breakpoints and stops are on `.goose` lines.
 
-It also records, below, exactly what cannot be shown from DWARF. That list
-is the specification for step 3's debug map.
+With a compiler that also writes the debug map (patch 0005: `goose --debug`
+writes `<stem>.debug.json` beside the generated `<stem>.c`), it reads the
+map and shows what DWARF cannot: Goose names and types for every local,
+only the locals in scope, the elements of resizables, variable-size values,
+enum variants, and Goose function names in backtraces.
+
+It also records, below, exactly what cannot be shown from DWARF, and which
+of it the map now covers.
 
 ## Loading it
 
@@ -39,6 +45,95 @@ formatters are in the type category `goose`; `type category disable goose`
 turns them off.
 
 ## What it shows
+
+### With the debug map
+
+The map is found the way the generated C is: the compile unit names
+`~/.goose/build/prog/<prog>-<hash>/<prog>.c`, and the map is
+`<prog>.debug.json` beside it. A map older than its `.c` is ignored (a
+compiler without the map has rebuilt the program into the same directory
+since). `GOOSE_LLDB_MAP=0` ignores it too. The map is read once per set of
+files and modification times.
+
+Values are then decoded from memory by their Goose type, which the map
+gives for each local and parameter (`functions[].locals[].type`) and for
+each field and variant (`types[]`). The generated types are packed, so a
+field's offset is the sum of the sizes before it; the decoder works that
+out from the Goose types, and walks variable-size values field by field.
+
+| Goose | C | Without the map | With it |
+|---|---|---|---|
+| `var nums: u32[>..]` | `gs_rhdr nums_g` | `len=4, element type not in debug info` | `[0, 3, 6, 9]` |
+| `var text: u8[>..]` | `gs_rhdr text_g` | `len=7, …` | `"grow 42"` |
+| `out: i64[>..]&` | `gs_rref out_g` | `len=4, …` | `[0, 1, 4, 9]` |
+| `words: u8[][>..]` | `gs_rhdr words_g` | `len=2, …` | `["one", "two"]` |
+| `Stack { …, items: i64[>..<] }` | `Stack_g s_g` | `items: len=2, …` | `items: [7, 9]` |
+| `let frozen: i64[]` | `uint8_t *frozen_g` | `<untyped bytes>` | `[7, 8, 9]` |
+| `let short: u8[varint]` | `uint8_t *short_g` | `<untyped bytes>` | `"hi"` |
+| `var sized: i64[..]` | `uint8_t *sized_g` | `<untyped bytes>` | `[3]` |
+| `let rec = Rec { id: 300, … }` | `uint8_t *rec_g` | `<untyped bytes>` | `Rec { id: 300, name: "rec" }` |
+| `let label: Mark..` | `uint8_t *label_g` | `<untyped bytes>` | `Mark.Label { text: "hi" }` |
+| `let c = Color.Green` | `Color_g c_g` | `Color #1` (DWARF alone) | `Color.Green` |
+| `Cursor { line: i64&, flag: bool }` | `Cursor_g` | `{ line: 1, flag: 1 }` | `{ line: 1, flag: true }` |
+| `Tree { key: i32, left: Tree&<u32>? }` | `uint32_t left_g` | `left: 4294967284` | `left: Tree { key: 1, left: null }` |
+| `PNode { …, next: PNode&<u32 in pool>? }` | `uint32_t next_g` | `next: 1` | `next: PNode { v: 1, next: null }` |
+
+Children follow the same types: a resizable's children are its elements,
+a struct's are its fields under their Goose names (`s_g.items`, and the C
+path `s_g.items_g` still works), an enum's are the active variant's
+fields. A child with a C type of its own is a value of that type
+(`(gs_rhdr) items`, `(Node_g *) next`); one without (a `bool`, a `varint`,
+a reference to a scalar, a variable-size value) is a `uint8_t *` holding
+its address, whose summary decodes it (`(uint8_t *) flag = true`). A
+field of a local is typed by walking the local's Goose type along the
+value's expression path, so `frame variable s_g.items_g` shows `[7, 9]`.
+
+A `bool` local is still a plain `uint8_t` to `frame variable` (`1`): LLDB
+asks no summary of a scalar. `goose-locals` and the summaries of structs
+and arrays show `true`.
+
+References are followed two deep in one summary (deeper ones show as
+addresses), which stops a cycle through relative or pointer links.
+
+`goose-locals` with the map prints `name: type = value` for the locals in
+scope at the frame's line (the map's `line`..`end`, inclusive),
+parameters first; temporaries, `gs_sp` and compiler locals such as
+`gs_pb_pool_g` are not in the map and are not shown. At line 11 of
+`test/arrays.goose`, before `frozen` and `n` are declared:
+
+```
+fixed: i32[4] = [1, 2, 3, 4]
+grow: i64[>..] = [10, 20, 30, 40, 50]
+view: i64[:] = [20, 30, 40]
+bytes: u8[:] = "goose\x00\x01\x02"
+lit: const u8[:] = "hello, goose"
+name: u8[..16] = ""
+```
+
+`goose-bt [N]` prints the frames under their Goose names (with a generic
+instance's type arguments, from the map's `bindings`):
+
+```
+* #0: refs`bump at refs.goose:11
+  #1: refs`main at refs.goose:23
+  #2: refs`main at refs.c:2029
+```
+
+LLDB's own `bt` and stop lines can show them too: `goose-frame-format`
+sets `frame-format` to one that calls `${script.frame:goose_lldb.frame_name}`
+(checked: LLDB 2100 runs a Python function from a format string), and
+`goose-frame-format off` puts the default back. It is a command rather
+than done on import, since it changes a setting:
+
+```
+  * frame #0: 0x… refs`bump at refs.goose:11
+    frame #1: 0x… refs`main at refs.goose:23
+```
+
+Without the map, `goose-bt` and the frame format show the C names
+(`bump_g_1`, `main_g`), and everything else is as below.
+
+### From DWARF and the generated C
 
 Types are recognized by name and by shape (an LLDB recognizer function, so
 the matching is exact rather than a set of overlapping regexes).
@@ -74,7 +169,7 @@ uninitialized local usually looks like.
 
 Two commands:
 
-- `goose-locals` lists the frame's Goose locals and arguments under their
+- `goose-locals` (without a map) lists the frame's Goose locals and arguments under their
   Goose names, without the compiler's temporaries (`t0`, `t1`, ...) and the
   hidden `gs_sp`.
 - `goose-as VAR TYPE` shows what the debug info cannot: the elements of a
@@ -143,11 +238,24 @@ Each `test/*.goose` is built with `goose build --debug` and run under
 first stop at each function and line the test records `frame variable`
 (Goose-named locals only), `goose-locals`, and the extra commands after
 `lldb:` on that line (`test-children VAR` lists a value's children as an
-editor would get them). `// BREAK when COND` stops only where the C
-condition holds. Addresses are masked. The record must equal
-`test/<sample>.expected`. `structs` and `generics` run a second time with
-`GOOSE_LLDB_CSOURCE=0` (`*.nocsource.expected`), which is what DWARF alone
-gives. `GOOSE_LLDB_WORK` keeps the binaries in a directory of your choice.
+editor would get them); `lldb only:` records just those commands.
+`// BREAK when COND` stops only where the C condition holds. Addresses are
+masked.
+
+Each sample is recorded up to three ways:
+
+| Record | How | Compared with |
+|---|---|---|
+| with the map | default | `<sample>.expected` |
+| without it | `GOOSE_LLDB_MAP=0` | `<sample>.nomap.expected` |
+| DWARF alone (`structs`, `generics`) | `GOOSE_LLDB_MAP=0 GOOSE_LLDB_CSOURCE=0` | `<sample>.nocsource.expected` |
+
+The runner asks the compiler (`goose --debug -o x.c`) whether it writes a
+map. A compiler that does not (before patch 0005) is checked against the
+`.nomap` and `.nocsource` files only, so the same files pass with both.
+`// BREAK maponly` stops are left out of the runs without a map: they stop
+where some locals are not yet initialized, which only the map's scopes
+hide. `GOOSE_LLDB_WORK` keeps the binaries in a directory of your choice.
 
 The samples cover fixed arrays, `u8[:]`, `i64[:]` and `const u8[:]` slices,
 string literals, `u8[..16]`, `i64[]`, `u8[>..]`, `u32[>..]`, `i64[>..<]`,
@@ -160,7 +268,8 @@ pool-relative links, `u8[varint]`, `i64[..]`, a struct with a `varint`
 field, a fixed array of enums, and `T&` and `bool` fields. Every C shape
 quoted in the next section comes from these samples.
 
-Checked with Apple LLDB `lldb-2100.0.17.203` on arm64 macOS. The
+Checked with Apple LLDB `lldb-2100.0.17.203` on arm64 macOS, with the
+goose-debug compiler at patch 0004 (no map) and with patch 0005. The
 `lldb-dap` path uses the same SB API calls (`GetNumChildren`,
 `GetChildAtIndex`, `GetSummary`) that `test-children` exercises, but it
 has not been run in an editor here.
@@ -171,8 +280,8 @@ Observed with the `#line` compiler (goose.git `9412b80f` plus the step-1
 patch) and Apple clang 21 at `-O0 -g`, on the samples in `test/` (the file
 is named with each entry; the `.expected` files hold the output quoted).
 Each entry gives the Goose declaration, the C the compiler emits for it,
-and what is missing. Step 3's
-map has to supply each missing fact.
+and what is missing. Step 3's map has to supply each missing fact; a
+**With the map** line says what patch 0005's map (version 1) now covers.
 
 ### 1. The element type of a resizable
 
@@ -224,6 +333,11 @@ count, then the bytes), so even its byte size is not in the header.
 struct field and global, and for a sequential array, how to step from one
 element to the next.
 
+**With the map:** covered for locals, parameters (`gs_rref`) and struct
+fields, including sequential arrays (`u8[][>..]` is walked element by
+element). Not for globals: the map has no globals, so
+`gs_globals_main.pool_g` still shows `len=…, element type not in debug info`.
+
 ### 2. The live length of a resizable, while code is growing it
 
 (`stacks.goose`, `layouts.goose`, `arrays.goose`)
@@ -265,6 +379,17 @@ five elements.
 live length (and the live top) of which Goose variable, over which lines.
 The alternative is for `--debug` to write the header back at every push.
 
+**With the map:** not covered; the elements are now shown, but from the
+stale `len` (`out: i64[>..]& = []` with three pushed). Reading the cached
+temporaries would work in the frame that holds them (`frame variable t7`
+reads 3, and `t7 == 3` works as a breakpoint condition), but not from any
+other frame: stopped in `fill`'s loop, `up` to `main` shows
+`squares: i64[>..] = []`, and nothing in `main`'s frame says that `fill`
+holds the live length of the array `squares` names. The same goes for a
+global cached over a function (`t48`), seen from a function it calls.
+Writing the header back at every push under `--debug` fixes every frame
+and every debugger (and a natvis file) at once.
+
 ### 3. Variable-size values: a bare `uint8_t *`
 
 (`arrays.goose`, `stacks.goose`, `structs.goose`, `layouts.goose`)
@@ -292,6 +417,13 @@ u8[varint] }`) has none.
 description for each variable-class type: length encodings (`u32`,
 `varint`, zigzag), capacity fields, tag widths, and the order of fields
 whose offsets are computed.
+
+**With the map:** covered. The map gives the Goose type and, for each
+struct and variant, its fields in order; the layouts above are built into
+the decoder (a `u32` count for `T[]`, a ULEB128 count for `T[varint]`, a
+`u32` capacity and length for `T[..]`, zigzag LEB128 for `varint`, a
+1-byte tag). If the compiler ever changes them, the map would have to say
+so; version 1 does not.
 
 ### 4. Enum tag values and variant names
 
@@ -347,6 +479,10 @@ a small C file: the named enum with such a variable survives dsymutil (one
 it does not. The tag field itself can stay `uint8_t`; the module would then
 match tag values to enumerators by name prefix. Not tried with MSVC/PDB.
 
+**With the map:** covered: `types[].variants[]` give each variant's name,
+tag and fields, for fixed-mode, C-like and variable-only enums (`"c": ""`
+for `Mark`). The `.c` scrape stays as the fallback without a map.
+
 ### 5. Relative references
 
 (`refs.goose`, `layouts.goose`)
@@ -377,6 +513,11 @@ as `(uint8_t *)target - (gs_pb_pool_g - 1)`.
 self- or pool-relative, the target type, whether it is optional, and for
 pool-relative ones which global array is the pool.
 
+**With the map:** covered: the field type `Tree&<u32>?` or
+`PNode&<u32 in pool>?` says all of it. The pool's base is read from the
+global `gs_globals_main.pool_g` (the map has no globals, so this follows
+the C naming, and only for the main program, not a worker's `gs_gl`).
+
 ### 6. References against optionals, and `bool` against `u8`, in fields
 
 (`refs.goose`, `layouts.goose`)
@@ -398,6 +539,9 @@ target's value, since references are transparent in Goose).
 **The map needs:** the Goose type of every field (which also covers 1, 3
 and 5).
 
+**With the map:** covered: field and local types say `T&`, `T?`, `bool`
+and `const`, and `goose-locals` prints the type (`lit: const u8[:]`).
+
 ### 7. Values on the data stacks
 
 Variable and resizable values live on per-thread data stacks:
@@ -410,6 +554,9 @@ Goose local that owns such a value holds a direct pointer (`base`, or the
 DWARF lacks is the type and the live extent (1, 2, 3). For a debugger that
 wants to show a whole data stack, the map would also need each function's
 stack offsets.
+
+**With the map:** unchanged; showing values does not need the stack
+index.
 
 ### 8. Scopes and the moment a local becomes valid
 
@@ -430,6 +577,13 @@ so at the function's first stop `xs_g` is garbage and the arguments are a
 value; and for split parameters, which C arguments make up the Goose
 parameter.
 
+**With the map:** the scopes are covered and `goose-locals` uses them.
+`frame variable` still lists every hoisted C local, garbage included. A
+local is in scope from its declaration line, so a stop on that line shows
+it before its initializer has run. The split parameters are not covered:
+the map names `xs` as `xs_g`, which is garbage until the body has rebuilt
+it.
+
 ### 9. Names
 
 - Locals and fields are `x_g`, shadowing ones `it_g_2`; temporaries are
@@ -449,6 +603,10 @@ parameter.
 arguments, function-value arguments); for each C local, its Goose name, or
 that it is a temporary.
 
+**With the map:** covered for names and type arguments (`goose-bt`,
+`goose-frame-format`). Function-value arguments are not: `twice_g_3` (with
+`inc`) and `twice_g_5` (with a block) are both `twice`, with no `bindings`.
+
 ### 10. Globals
 
 Globals are fields of `gs_globals_t`: main's instance is the static
@@ -459,10 +617,13 @@ gs_globals_main` does, with these formatters applied to the fields.
 **The map needs:** the globals' Goose names and types, and, for workers,
 that they are reached through `gs_gl`.
 
+**With the map:** not covered: version 1 has no globals.
+
 ## Notes for step 1
 
 A Goose line can stop several times: a breakpoint on line 24 of
 `test/structs.goose` (one `print` of several values) resolves to 6
 locations, because the line table has 6 separate address ranges for it,
-and the program stops at 5 of them. The test records only the first stop
-at each function and line.
+and the program stops at 5 of them. Patch 0003 fixes this: with it the
+same breakpoint has 1 location. The test still records only the first
+stop at each function and line.

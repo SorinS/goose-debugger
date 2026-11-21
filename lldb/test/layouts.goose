@@ -11,6 +11,7 @@ struct Cursor { line: i64&, flag: bool }
 fn main() {
     pool.push(PNode { v: 1 });
     pool.push(PNode { v: 2, next: pool[0] });
+    let second .= pool[1];
     format(log, "x");
     var sized: i64[..] = [..8];
     sized.push(3);
@@ -21,5 +22,5 @@ fn main() {
     var count = 0;
     let cur = Cursor { line: count, flag: true };
     cur.line += 1;
-    print(pool.len, log, sized, short, c, fs, r.id, count, cur.flag); // BREAK lldb: target variable gs_globals_main; goose-as gs_globals_main.pool_g PNode_g; p *(PNode_g(*)[2])gs_globals_main.pool_g.base; memory read -s1 -c9 -fu c_g
+    print(pool.len, log, sized, short, c, fs, r.id, count, cur.flag); // BREAK lldb: target variable gs_globals_main; goose-as gs_globals_main.pool_g PNode_g; p *(PNode_g(*)[2])gs_globals_main.pool_g.base; memory read -s1 -c9 -fu c_g; test-children cur_g; test-children r_g; test-children c_g
 }

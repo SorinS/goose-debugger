@@ -21,5 +21,5 @@ fn main() {
     shapes.push(circle);
     shapes.push(rect);
     u.hp -= 1;
-    print(p, " ", u, " ", c, " ", area(circle) + area(rect) + area(dot), " ", label, " ", shapes); // BREAK lldb: frame variable u_g.pos_g.x_g; test-children circle_g; test-children rect_g; test-children dot_g
+    print(p, " ", u, " ", c, " ", area(circle) + area(rect) + area(dot), " ", label, " ", shapes); // BREAK lldb: frame variable u_g.pos_g.x_g; test-children circle_g; test-children rect_g; test-children dot_g; test-children label_g; test-children shapes_g
 }

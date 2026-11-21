@@ -4,30 +4,36 @@
 (Unit_g) u_g = Unit { kind: 1, hp: 99, pos: Point { x: 3, y: -4 }, tag: "hero" }
 (Color_g) c_g = Color.Green
 (Shape_g_Circle_p) circle_g = Shape.Circle { r: 1.5 }
-(Shape_g_Rect_p) rect_g = Shape.Rect { w: 2, h: 3 }
+(Shape_g_Rect_p) rect_g = Shape.Rect { w: 2.0, h: 3.0 }
 (Shape_g) dot_g = Shape.Dot
-(uint8_t *) label_g = 0x_ <untyped bytes>
-(gs_rhdr) shapes_g = len=2, element type not in debug info
+(uint8_t *) label_g = 0x_ Mark.Label { text: "hi" }
+(gs_rhdr) shapes_g = [Shape.Circle { r: 1.5 }, Shape.Rect { w: 2.0, h: 3.0 }]
 -- goose-locals
-p = Point { x: 3, y: -4 }
-u = Unit { kind: 1, hp: 99, pos: Point { x: 3, y: -4 }, tag: "hero" }
-c = Color.Green
-circle = Shape.Circle { r: 1.5 }
-rect = Shape.Rect { w: 2, h: 3 }
-dot = Shape.Dot
-label = 0x_
-shapes = len=2, element type not in debug info
+p: Point = Point { x: 3, y: -4 }
+u: Unit = Unit { kind: 1, hp: 99, pos: Point { x: 3, y: -4 }, tag: "hero" }
+c: Color = Color.Green
+circle: Shape.Circle = Shape.Circle { r: 1.5 }
+rect: Shape.Rect = Shape.Rect { w: 2.0, h: 3.0 }
+dot: Shape = Shape.Dot
+label: Mark.. = Mark.Label { text: "hi" }
+shapes: Shape[>..] = [Shape.Circle { r: 1.5 }, Shape.Rect { w: 2.0, h: 3.0 }]
 -- frame variable u_g.pos_g.x_g
 (int32_t) u_g.pos_g.x_g = 3
 -- test-children circle_g
 circle_g: 1 children
-  r_g (double) = 1.5
+  r (double) = 1.5
 -- test-children rect_g
 rect_g: 2 children
-  w_g (double) = 2
-  h_g (double) = 3
+  w (double) = 2
+  h (double) = 3
 -- test-children dot_g
-dot_g: 1 children
-  tag (uint8_t) = 2
+dot_g: 0 children
+-- test-children label_g
+label_g: 1 children
+  text (uint8_t *) = "hi"
+-- test-children shapes_g
+shapes_g: 2 children
+  [0] (Shape_g) = Shape.Circle { r: 1.5 }
+  [1] (Shape_g) = Shape.Rect { w: 2.0, h: 3.0 }
 Point { 3, -4 } Unit { 1, 99, Point { 3, -4 }, "hero" } Color.Green 12.75 Label { "hi" } [Circle { 1.5 }, Rect { 2.0, 3.0 }]
 Process exited with status = 0 (0x00000000)

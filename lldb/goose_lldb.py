@@ -16,17 +16,29 @@ recognizes them by name and shape and shows them as Goose values:
 
 Load it with `command script import /path/to/goose_lldb.py`.
 
-Tag names are not in the debug info: the generated C declares them in an
-anonymous enum that the C compiler drops as unused. They are read from the
-generated C file named by the compile unit, when that file still exists.
-Set GOOSE_LLDB_CSOURCE=0 to turn that off and see only what DWARF gives.
+A compiler with the debug map (goose --debug writes <stem>.debug.json
+beside the generated <stem>.c) says what the C cannot: each function's and
+local's Goose name and type, the line range a local is in scope over, and
+the fields and variants of the types they name. Where the map is found
+(the compile unit's .c with .debug.json in place of .c, no older than the
+.c), values are decoded from memory by their Goose type: the elements of a
+resizable, a variable-size value behind a bare uint8_t *, an enum's
+variant, a bool, a reference against an optional, a relative reference.
+Set GOOSE_LLDB_MAP=0 to ignore the map.
+
+Without a map, tag names come from the generated C file named by the
+compile unit, when it still exists: the C declares them in an anonymous
+enum that dsymutil drops from the debug info. Set GOOSE_LLDB_CSOURCE=0 to
+turn that off as well and see only what DWARF gives.
 
 Nothing here may raise into LLDB: every entry point catches its errors and
 falls back to showing less.
 """
 
+import json
 import os
 import re
+import struct
 
 import lldb
 
@@ -39,6 +51,8 @@ MAX_TEXT = 512
 MAX_INLINE = 16
 MAX_SUMMARY = 400
 MAX_LEN = 1 << 40
+# References followed inside one summary; deeper ones show as addresses.
+MAX_DEPTH = 2
 
 _FIXED_RE = re.compile(r"^a[0-9]+_")
 _LIMITED_RE = re.compile(r"^l[0-9]+_")
@@ -46,8 +60,12 @@ _LIMITED_RE = re.compile(r"^l[0-9]+_")
 _NAME_RE = re.compile(r"^(.+?)_g(_?[0-9]+)?$")
 
 
+def _env_on(name):
+    return os.environ.get(name, "1") not in ("0", "off", "no", "false")
+
+
 def _csource_enabled():
-    return os.environ.get("GOOSE_LLDB_CSOURCE", "1") not in ("0", "off", "no", "false")
+    return _env_on("GOOSE_LLDB_CSOURCE")
 
 
 # --------------------------------------------------------------------------
@@ -109,6 +127,8 @@ def classify(t):
             if name.startswith("o_"):
                 return "opt"
             return None
+        if name == "uint8_t *":
+            return "bytes"
         fs = _fields(t)
         if fs is None:
             return None
@@ -188,9 +208,17 @@ def _tag_constants(target):
 
 
 def tag_name(valobj, enum_cname, tag):
-    """The variant name for a tag value, or None when it cannot be known."""
+    """The variant name for a tag value, or None when it cannot be known:
+    from the debug map, else from the generated C."""
     try:
         target = valobj.GetTarget()
+        m = get_map(target)
+        if m is not None:
+            td = m.types_by_c.get(enum_cname)
+            if td is not None:
+                for v in td.get("variants", []):
+                    if v.get("tag") == tag:
+                        return v.get("name")
         prefix = enum_cname + "_"
         for cname, v in _tag_constants(target).items():
             if v == tag and cname.startswith(prefix) and cname.endswith("_g"):
@@ -349,6 +377,789 @@ def _list_text(children, total):
 
 
 # --------------------------------------------------------------------------
+# The debug map
+
+
+class GooseMap:
+    """One program's <stem>.debug.json files, indexed: functions by C name,
+    types by Goose name and by C name."""
+
+    def __init__(self, docs):
+        self.funcs = {}
+        self.types = {}
+        self.types_by_c = {}
+        for d in docs:
+            for f in d.get("functions", []):
+                self.funcs.setdefault(f.get("c"), f)
+            for t in d.get("types", []):
+                self.types.setdefault(t.get("name"), t)
+                if t.get("c"):
+                    self.types_by_c.setdefault(t["c"], t)
+
+    def local(self, fname, cname):
+        f = self.funcs.get(fname)
+        if f is None:
+            return None
+        for l in f.get("locals", []):
+            if l.get("c") == cname:
+                return l
+        return None
+
+
+_map_cache = {}
+
+
+def map_path(cpath):
+    return cpath[:-2] + ".debug.json" if cpath.endswith(".c") else None
+
+
+def get_map(target):
+    """The target's debug map, or None: none written, older than its .c (a
+    compiler without the map rebuilt the program since), unreadable, or
+    turned off with GOOSE_LLDB_MAP=0."""
+    if not _env_on("GOOSE_LLDB_MAP"):
+        return None
+    try:
+        key = []
+        for c in _cu_paths(target):
+            j = map_path(c)
+            try:
+                cm, jm = os.path.getmtime(c), os.path.getmtime(j)
+            except OSError:
+                continue
+            if jm + 1e-3 < cm:
+                continue
+            key.append((j, jm))
+        key = tuple(key)
+        if not key:
+            return None
+        if key in _map_cache:
+            return _map_cache[key]
+        docs = []
+        for j, _ in key:
+            try:
+                with open(j) as f:
+                    d = json.load(f)
+                # The decoder builds in version 1's layouts; a later map may
+                # describe others.
+                if d.get("version") == 1:
+                    docs.append(d)
+            except Exception:
+                pass
+        m = GooseMap(docs) if docs else None
+        _map_cache.clear()
+        _map_cache[key] = m
+        return m
+    except Exception:
+        return None
+
+
+# Goose type text, as the map writes it, parsed into tuples:
+#   ("scalar", "i64")            i8 ... u64, f32, f64, bool, varint
+#   ("named", "Pair<i64>")       a struct or a fixed-mode enum
+#   ("varmode", "Shape")         Shape..
+#   ("variant", "Shape", "Circle")
+#   ("array", elem, form, n)     form: fixed (n = k), var (n = count type),
+#                                limited (n = k), cap, grow, shrink, slice
+#   ("ref", t), ("opt", t)       T&, T?
+#   ("rel", t, width, pool, optional)   T&<u32>, T&<u32 in pool>?
+
+_SCALAR_SIZES = {"i8": 1, "u8": 1, "bool": 1, "i16": 2, "u16": 2, "i32": 4, "u32": 4,
+                 "f32": 4, "i64": 8, "u64": 8, "f64": 8, "varint": None}
+_COUNT_TYPES = ("u8", "u16", "u32", "u64", "varint")
+_parse_cache = {}
+
+
+def _open_of(s, close_idx, op, cl):
+    depth = 0
+    for i in range(close_idx, -1, -1):
+        if s[i] == cl:
+            depth += 1
+        elif s[i] == op:
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+
+def _top_level_dot(s):
+    """The index of the last '.' outside <...> that is not part of '..', or -1."""
+    depth = 0
+    for i in range(len(s) - 1, -1, -1):
+        c = s[i]
+        if c == ">":
+            depth += 1
+        elif c == "<":
+            depth -= 1
+        elif c == "." and depth == 0:
+            if (i > 0 and s[i - 1] == ".") or (i + 1 < len(s) and s[i + 1] == "."):
+                return -1
+            return i
+    return -1
+
+
+def parse_type(text):
+    t = _parse_cache.get(text)
+    if t is None:
+        t = _parse(text.strip())
+        _parse_cache[text] = t
+    return t
+
+
+def _parse(s):
+    if s.startswith("const "):
+        return _parse(s[6:].strip())
+    if s.endswith("?"):
+        inner = _parse(s[:-1])
+        if inner[0] == "ref":
+            return ("opt", inner[1])
+        if inner[0] == "rel":
+            return inner[:4] + (True,)
+        return ("opt", inner)
+    if s.endswith(">"):
+        i = _open_of(s, len(s) - 1, "<", ">")
+        if i > 0 and s[i - 1] == "&":
+            args = s[i + 1:-1].split(" in ")
+            pool = args[1].strip() if len(args) > 1 else None
+            return ("rel", _parse(s[:i - 1]), args[0].strip(), pool, False)
+    if s.endswith("&"):
+        return ("ref", _parse(s[:-1]))
+    if s.endswith("]"):
+        i = _open_of(s, len(s) - 1, "[", "]")
+        inner = s[i + 1:-1].strip()
+        elem = _parse(s[:i])
+        if inner == "":
+            return ("array", elem, "var", "u32")
+        if inner == ":":
+            return ("array", elem, "slice", None)
+        if inner == ">..":
+            return ("array", elem, "grow", None)
+        if inner == ">..<":
+            return ("array", elem, "shrink", None)
+        if inner == "..":
+            return ("array", elem, "cap", None)
+        if inner.startswith(".."):
+            return ("array", elem, "limited", int(inner[2:]))
+        if inner in _COUNT_TYPES:
+            return ("array", elem, "var", inner)
+        return ("array", elem, "fixed", int(inner))
+    if s.endswith(".."):
+        return ("varmode", s[:-2])
+    if s in _SCALAR_SIZES:
+        return ("scalar", s)
+    i = _top_level_dot(s)
+    if i > 0:
+        return ("variant", s[:i], s[i + 1:])
+    return ("named", s)
+
+
+def type_text(t):
+    k = t[0]
+    if k in ("scalar", "named"):
+        return t[1]
+    if k == "varmode":
+        return t[1] + ".."
+    if k == "variant":
+        return t[1] + "." + t[2]
+    if k == "ref":
+        return type_text(t[1]) + "&"
+    if k == "opt":
+        return type_text(t[1]) + "?"
+    if k == "rel":
+        inner = t[2] + (" in " + t[3] if t[3] else "")
+        return "%s&<%s>%s" % (type_text(t[1]), inner, "?" if t[4] else "")
+    e = type_text(t[1])
+    form, n = t[2], t[3]
+    suffix = {"slice": "[:]", "grow": "[>..]", "shrink": "[>..<]", "cap": "[..]"}.get(form)
+    if suffix:
+        return e + suffix
+    if form == "limited":
+        return "%s[..%d]" % (e, n)
+    if form == "fixed":
+        return "%s[%d]" % (e, n)
+    return e + ("[]" if n == "u32" else "[%s]" % n)
+
+
+def _len_width(k):
+    return 1 if k < 1 << 8 else 2 if k < 1 << 16 else 4 if k < 1 << 32 else 8
+
+
+def _width_bytes(w):
+    return {"u8": 1, "u16": 2, "u32": 4, "u64": 8}.get(w)
+
+
+class Decoder:
+    """Reads Goose values out of the inferior by their Goose type. Generated
+    types are packed (#pragma pack 1), so a field's offset is the sum of the
+    sizes before it. Every method may raise; callers catch."""
+
+    def __init__(self, target, gmap):
+        self.target = target
+        self.process = target.GetProcess()
+        self.map = gmap
+
+    # -- memory
+
+    def read(self, addr, n):
+        if addr == 0:
+            raise ValueError("null")
+        err = lldb.SBError()
+        data = self.process.ReadMemory(addr, n, err)
+        if err.Fail() or data is None or len(data) != n:
+            raise ValueError("unreadable at 0x%x" % addr)
+        return bytes(data)
+
+    def uint(self, addr, n):
+        return int.from_bytes(self.read(addr, n), "little")
+
+    def sint(self, addr, n):
+        return int.from_bytes(self.read(addr, n), "little", signed=True)
+
+    def uleb(self, addr):
+        v, shift, i = 0, 0, 0
+        while i < 10:
+            b = self.uint(addr + i, 1)
+            v |= (b & 0x7F) << shift
+            shift += 7
+            i += 1
+            if not b & 0x80:
+                return v, i
+        raise ValueError("bad LEB128 at 0x%x" % addr)
+
+    def varint(self, addr):
+        u, n = self.uleb(addr)
+        return (u >> 1) ^ -(u & 1), n
+
+    # -- types
+
+    def tdef(self, name):
+        return self.map.types.get(name) if self.map else None
+
+    def size(self, t):
+        """The byte size of a fixed-size type, None for a variable one."""
+        k = t[0]
+        if k == "scalar":
+            return _SCALAR_SIZES[t[1]]
+        if k in ("ref", "opt"):
+            return 8
+        if k == "rel":
+            return _width_bytes(t[2])
+        if k == "array":
+            form = t[2]
+            if form in ("slice", "grow", "shrink"):
+                return 16
+            es = self.size(t[1])
+            if es is None:
+                return None
+            if form == "fixed":
+                return t[3] * es
+            if form == "limited":
+                return _len_width(t[3]) + t[3] * es
+            return None
+        if k == "variant":
+            td = self.tdef(t[1])
+            v = self._variant(td, t[2])
+            return self._fields_size(v.get("fields", [])) if v is not None else None
+        if k == "named":
+            td = self.tdef(t[1])
+            if td is None or td.get("variable"):
+                return None
+            if td.get("kind") == "enum":
+                if not td.get("fixed"):
+                    return None
+                sizes = [self._fields_size(v.get("fields", [])) for v in td.get("variants", [])]
+                if any(x is None for x in sizes):
+                    return None
+                return 1 + max(sizes + [0])
+            return self._fields_size(td.get("fields", []))
+        return None
+
+    def _fields_size(self, fields):
+        n = 0
+        for f in fields:
+            s = self.size(parse_type(f["type"]))
+            if s is None:
+                return None
+            n += s
+        return n
+
+    @staticmethod
+    def _variant(td, name):
+        if td is None:
+            return None
+        for v in td.get("variants", []):
+            if v.get("name") == name:
+                return v
+        return None
+
+    @staticmethod
+    def _variant_by_tag(td, tag):
+        for v in td.get("variants", []):
+            if v.get("tag") == tag:
+                return v
+        return None
+
+    # -- values as text: (text, size); size is None where it is not known
+
+    def text(self, addr, t, depth=0):
+        k = t[0]
+        if k == "scalar":
+            return self._scalar(addr, t[1])
+        if k in ("ref", "opt"):
+            p = self.uint(addr, 8)
+            if p == 0:
+                return ("null", 8)
+            return (self._target_text(p, t[1], depth), 8)
+        if k == "rel":
+            w = _width_bytes(t[2])
+            if w is None:
+                return ("<%s offset>" % t[2], None)
+            target = self.rel_target(addr, t)
+            if target is None:
+                return ("null", w)
+            return (self._target_text(target, t[1], depth), w)
+        if k == "array":
+            return self._array(addr, t, depth)
+        if k == "named":
+            td = self.tdef(t[1])
+            if td is None:
+                return ("<%s: not in the debug map>" % t[1], self.size(t))
+            if td.get("kind") == "enum":
+                return self._enum(addr, td, td.get("fixed", False), depth)
+            body, n = self._fields(addr, td.get("fields", []), depth)
+            return ("%s %s" % (td["name"], body), n)
+        if k == "varmode":
+            td = self.tdef(t[1])
+            if td is None:
+                return ("<%s..: not in the debug map>" % t[1], None)
+            return self._enum(addr, td, False, depth)
+        if k == "variant":
+            td = self.tdef(t[1])
+            v = self._variant(td, t[2])
+            if v is None:
+                return ("<%s.%s: not in the debug map>" % (t[1], t[2]), None)
+            body, n = self._fields(addr, v.get("fields", []), depth)
+            return ("%s.%s %s" % (td["name"], t[2], body) if v.get("fields") else "%s.%s" % (td["name"], t[2]), n)
+        return ("?", None)
+
+    def _target_text(self, addr, t, depth):
+        # Depth counts the references followed, which is what can cycle.
+        if depth >= MAX_DEPTH:
+            return "0x%x" % addr
+        return self.text(addr, t, depth + 1)[0]
+
+    def rel_target(self, addr, t):
+        """The address a relative reference at addr points to, or None for
+        null. Self-relative: the field's own address plus the signed
+        offset. Pool-relative: the pool's base, minus one, plus the offset."""
+        w = _width_bytes(t[2])
+        off = self.uint(addr, w)
+        if off == 0 and t[4]:
+            return None
+        if t[3] is None:
+            if off >= 1 << (8 * w - 1):
+                off -= 1 << (8 * w)
+            return addr + off
+        base = self.pool_base(t[3])
+        if base is None:
+            raise ValueError("pool %s not found" % t[3])
+        return base - 1 + off
+
+    def pool_base(self, pool):
+        g = self.target.FindFirstGlobalVariable("gs_globals_main")
+        if not g.IsValid():
+            return None
+        v = g
+        for part in pool.split("."):
+            v = v.GetNonSyntheticValue().GetChildMemberWithName(part + "_g")
+            if not v.IsValid():
+                return None
+        b = v.GetNonSyntheticValue().GetChildMemberWithName("base")
+        return b.GetValueAsUnsigned() if b.IsValid() else None
+
+    def _scalar(self, addr, name):
+        if name == "varint":
+            v, n = self.varint(addr)
+            return (str(v), n)
+        n = _SCALAR_SIZES[name]
+        if name == "bool":
+            return ("true" if self.uint(addr, 1) else "false", 1)
+        if name == "f64":
+            return (_fmt_float(struct.unpack("<d", self.read(addr, 8))[0], False), 8)
+        if name == "f32":
+            return (_fmt_float(struct.unpack("<f", self.read(addr, 4))[0], True), 4)
+        if name.startswith("i"):
+            return (str(self.sint(addr, n)), n)
+        return (str(self.uint(addr, n)), n)
+
+    def array_layout(self, addr, t):
+        """(address of the first element, element count, byte size of the
+        array where it is stored, or None)."""
+        form, n = t[2], t[3]
+        if form == "fixed":
+            es = self.size(t[1])
+            return addr, n, (n * es if es is not None else None)
+        if form == "limited":
+            w = _len_width(n)
+            es = self.size(t[1])
+            return addr + w, self.uint(addr, w), (w + n * es if es is not None else None)
+        if form in ("slice", "grow", "shrink"):
+            return self.uint(addr, 8), self.sint(addr + 8, 8), 16
+        if form == "cap":
+            cap, ln = self.uint(addr, 4), self.uint(addr + 4, 4)
+            es = self.size(t[1])
+            return addr + 8, ln, (8 + cap * es if es is not None else None)
+        # var: a count, then the elements; the size is known after a walk.
+        if n == "varint":
+            cnt, w = self.uleb(addr)
+        else:
+            w = _width_bytes(n)
+            cnt = self.uint(addr, w)
+        return addr + w, cnt, None
+
+    def elements(self, addr, t, limit):
+        """[(address, element type)] for at most limit elements, the total
+        count, and the array's stored size (None where unknown)."""
+        first, cnt, stored = self.array_layout(addr, t)
+        if cnt < 0 or cnt > MAX_LEN:
+            raise ValueError("invalid len=%d" % cnt)
+        et = t[1]
+        es = self.size(et)
+        out = []
+        a = first
+        for i in range(min(cnt, limit)):
+            out.append((a, et))
+            if es is None:
+                _, sz = self.text(a, et, MAX_DEPTH)
+                if sz is None:
+                    break
+                a += sz
+            else:
+                a += es
+        if stored is None and t[2] == "var":
+            if es is not None:
+                stored = (first - addr) + cnt * es
+            elif len(out) == cnt:
+                stored = a - addr
+        return out, cnt, stored
+
+    def _array(self, addr, t, depth):
+        et = t[1]
+        if et == ("scalar", "u8"):
+            first, cnt, stored = self.array_layout(addr, t)
+            if cnt < 0 or cnt > MAX_LEN:
+                return ("<invalid len=%d>" % cnt, stored)
+            data = self.read(first, min(cnt, MAX_TEXT)) if cnt else b""
+            if stored is None and t[2] == "var":
+                stored = (first - addr) + cnt
+            return (quote_bytes(bytearray(data), cnt), stored)
+        els, cnt, stored = self.elements(addr, t, MAX_INLINE)
+        parts = [self.text(a, et, depth)[0] for a, et in els]
+        if cnt > len(els):
+            parts.append("... (%d elements)" % cnt)
+        return ("[" + ", ".join(parts) + "]", stored)
+
+    def _fields(self, addr, fields, depth):
+        """'{ x: 3, y: -4 }' and the fields' total size."""
+        parts = []
+        a = addr
+        for f in fields:
+            ft = parse_type(f["type"])
+            txt, sz = self.text(a, ft, depth)
+            parts.append("%s: %s" % (f["name"], txt))
+            if sz is None:
+                if len(parts) < len(fields):
+                    parts.append("...")
+                return ("{ " + ", ".join(parts) + " }", None)
+            a += sz
+        return ("{ " + ", ".join(parts) + " }" if parts else "{}", a - addr)
+
+    def field_addrs(self, addr, fields):
+        """[(name, address, type)] for the fields that can be located."""
+        out = []
+        a = addr
+        for f in fields:
+            ft = parse_type(f["type"])
+            out.append((f["name"], a, ft))
+            sz = self.size(ft)
+            if sz is None:
+                sz = self.text(a, ft, MAX_DEPTH)[1]
+                if sz is None:
+                    break
+            a += sz
+        return out
+
+    def _enum(self, addr, td, fixed, depth):
+        tag = self.uint(addr, 1)
+        v = self._variant_by_tag(td, tag)
+        size = self.size(("named", td["name"])) if fixed else None
+        if v is None:
+            return ("%s #%d" % (td["name"], tag), size)
+        name = "%s.%s" % (td["name"], v["name"])
+        if not v.get("fields"):
+            return (name, size if fixed else 1)
+        body, n = self._fields(addr + 1, v["fields"], depth)
+        return ("%s %s" % (name, body), size if fixed else (1 + n if n is not None else None))
+
+    # -- children: [(name, address, type)]
+
+    def children(self, addr, t):
+        k = t[0]
+        if k in ("ref", "opt"):
+            p = self.uint(addr, 8)
+            return self.children(p, t[1]) if p else []
+        if k == "rel":
+            target = self.rel_target(addr, t)
+            return self.children(target, t[1]) if target is not None else []
+        if k == "array":
+            els, cnt, _ = self.elements(addr, t, MAX_CHILDREN)
+            return [("[%d]" % i, a, et) for i, (a, et) in enumerate(els)]
+        if k == "named":
+            td = self.tdef(t[1])
+            if td is None:
+                return []
+            if td.get("kind") == "enum":
+                return self._enum_children(addr, td)
+            return self.field_addrs(addr, td.get("fields", []))
+        if k == "varmode":
+            td = self.tdef(t[1])
+            return self._enum_children(addr, td) if td else []
+        if k == "variant":
+            v = self._variant(self.tdef(t[1]), t[2])
+            return self.field_addrs(addr, v.get("fields", [])) if v else []
+        return []
+
+    def _enum_children(self, addr, td):
+        v = self._variant_by_tag(td, self.uint(addr, 1))
+        if v is None:
+            return []
+        return self.field_addrs(addr + 1, v.get("fields", []))
+
+
+def _fmt_float(x, single):
+    if x != x:
+        return "nan"
+    if x in (float("inf"), float("-inf")):
+        return "inf" if x > 0 else "-inf"
+    s = repr(x)
+    if single:
+        for p in range(1, 10):
+            c = "%.*g" % (p, x)
+            if struct.unpack("<f", struct.pack("<f", float(c)))[0] == x:
+                s = c
+                break
+    if not any(ch in s for ch in ".en"):
+        s += ".0"
+    return s
+
+
+# C types for Goose types, for the children a debugger UI lists: a child
+# with a C type is an ordinary value of that type; one without (a bool, a
+# varint, a reference, a variable-size value) is a uint8_t * whose summary
+# decodes it.
+_C_SCALARS = {"i8": "int8_t", "u8": "uint8_t", "i16": "int16_t", "u16": "uint16_t",
+              "i32": "int32_t", "u32": "uint32_t", "i64": "int64_t", "u64": "uint64_t",
+              "f32": "float", "f64": "double"}
+
+
+def c_type_for(target, gmap, t):
+    k = t[0]
+    name = None
+    if k == "scalar":
+        name = _C_SCALARS.get(t[1])
+    elif k == "named":
+        td = gmap.types.get(t[1]) if gmap else None
+        name = td.get("c") if td and not td.get("variable") else None
+    elif k == "array" and t[2] in ("grow", "shrink"):
+        name = "gs_rhdr"
+    elif k == "array" and t[2] in ("slice", "fixed", "limited"):
+        # sl_u8, a4_i32, l16_u8, a4_Shape_g: the element as the C names it.
+        e = t[1]
+        en = e[1] if e[0] == "scalar" else None
+        if e[0] == "named" and gmap and gmap.types.get(e[1]):
+            en = gmap.types[e[1]].get("c") or None
+        if en:
+            name = ("sl_%s" % en if t[2] == "slice" else
+                    "a%d_%s" % (t[3], en) if t[2] == "fixed" else "l%d_%s" % (t[3], en))
+    elif k in ("ref", "opt") and t[1][0] == "named":
+        # A pointer to a struct shows its target through the struct's own
+        # summary; one to a scalar would not, so it gets a uint8_t *.
+        target_ct = c_type_for(target, gmap, t[1])
+        return target_ct.GetPointerType() if target_ct is not None else None
+    if not name:
+        return None
+    ct = target.FindFirstType(name)
+    return ct if ct.IsValid() else None
+
+
+# Values made for children carry their Goose type here, keyed by where they
+# are and what they are called, so that their own summary and children can
+# find it again.
+_registry = {}
+
+
+def _register(key, t):
+    if len(_registry) > 20000:
+        _registry.clear()
+    _registry[key] = t
+
+
+def goose_type_of(valobj, gmap):
+    """A value's Goose type, parsed, or None: a child this module made, a
+    local of the frame it belongs to, or a value of a C type the map names."""
+    try:
+        name = valobj.GetName() or ""
+        tn = type_name(valobj.GetType())
+        la = valobj.GetLoadAddress()
+        if tn == "uint8_t *":
+            t = _registry.get(("p", valobj.GetValueAsUnsigned(), name))
+        else:
+            t = _registry.get((la, tn, name))
+        if t is not None:
+            return t
+        frame = valobj.GetFrame()
+        if frame.IsValid():
+            l = gmap.local(frame.GetFunctionName(), name)
+            if l is not None:
+                fv = frame.FindVariable(name)
+                if fv.IsValid() and fv.GetLoadAddress() == la:
+                    return parse_type(l["type"])
+            t = _type_by_path(valobj, frame, gmap)
+            if t is not None:
+                return t
+        td = gmap.types_by_c.get(tn)
+        if td is not None:
+            return ("named", td["name"])
+    except Exception:
+        pass
+    return None
+
+
+_PATH_RE = re.compile(r"\.|->|\[[0-9]+\]|[^.\-\[]+")
+
+
+def _type_by_path(valobj, frame, gmap):
+    """The Goose type of a C field or element reached from a frame local,
+    such as s_g.items_g or u_g.pos_g.x_g, by walking the local's Goose type
+    along the value's expression path. None where the walk leaves what the
+    map describes (a slice's data, a header's base)."""
+    st = lldb.SBStream()
+    if not valobj.GetExpressionPath(st):
+        return None
+    toks = [x for x in _PATH_RE.findall(st.GetData() or "") if x not in (".", "->")]
+    if len(toks) < 2:
+        return None
+    l = gmap.local(frame.GetFunctionName(), toks[0])
+    if l is None:
+        return None
+    t = parse_type(l["type"])
+    variant = None
+    for tok in toks[1:]:
+        while t[0] in ("ref", "opt"):
+            t = t[1]
+        if tok.startswith("["):
+            if t[0] != "array":
+                return None
+            t = t[1]
+            continue
+        if t[0] == "array" and tok == "e":
+            continue
+        if t[0] in ("named", "variant"):
+            td = gmap.types.get(t[1])
+            if td is None:
+                return None
+            if td.get("kind") == "enum":
+                if tok == "u":
+                    continue
+                if t[0] == "named" and tok.startswith("v_") and variant is None:
+                    variant = goose_name(tok[2:])
+                    t = ("variant", t[1], variant)
+                    continue
+                v = Decoder._variant(td, t[2] if t[0] == "variant" else variant)
+                fields = v.get("fields", []) if v else []
+            else:
+                fields = td.get("fields", [])
+            variant = None
+            f = next((f for f in fields if f.get("c") == tok), None)
+            if f is None:
+                return None
+            t = parse_type(f["type"])
+            continue
+        return None
+    return t
+
+
+def value_location(valobj, t):
+    """Where a value of Goose type t that LLDB holds as valobj starts in
+    memory, or None. A variable-size value is a uint8_t * to its bytes; a
+    reference or optional, and gs_rref, hold the pointer in place."""
+    if type_name(valobj.GetType()) == "uint8_t *":
+        # A variable-size local, or a child this module made for a value
+        # with no C type of its own: either way the pointer is the address.
+        return valobj.GetValueAsUnsigned()
+    canon = valobj.GetType().GetCanonicalType()
+    if canon.IsPointerType() and t[0] not in ("ref", "opt"):
+        return valobj.GetValueAsUnsigned()
+    la = valobj.GetLoadAddress()
+    if la == lldb.LLDB_INVALID_ADDRESS:
+        return None
+    return la
+
+
+def map_summary(valobj):
+    """The summary decoded through the debug map, or None to fall back."""
+    target = valobj.GetTarget()
+    gmap = get_map(target)
+    if gmap is None:
+        return None
+    v = valobj.GetNonSyntheticValue()
+    t = goose_type_of(v, gmap)
+    if t is None:
+        return None
+    addr = value_location(v, t)
+    if addr is None:
+        return None
+    try:
+        return Decoder(target, gmap).text(addr, t)[0]
+    except Exception as e:
+        return "<%s>" % e
+
+
+def map_children(valobj):
+    """Children decoded through the debug map, or None to fall back."""
+    target = valobj.GetTarget()
+    gmap = get_map(target)
+    if gmap is None:
+        return None
+    v = valobj.GetNonSyntheticValue()
+    t = goose_type_of(v, gmap)
+    if t is None:
+        return None
+    addr = value_location(v, t)
+    if addr is None:
+        return None
+    dec = Decoder(target, gmap)
+    try:
+        kids = dec.children(addr, t)
+    except Exception:
+        return []
+    out = []
+    u8p = target.FindFirstType("uint8_t").GetPointerType()
+    order = target.GetByteOrder()
+    for name, a, ct_g in kids[:MAX_CHILDREN]:
+        ct = c_type_for(target, gmap, ct_g)
+        if ct is not None:
+            c = v.CreateValueFromAddress(name, a, ct)
+            _register((a, type_name(ct), name), ct_g)
+        else:
+            data = lldb.SBData.CreateDataFromUInt64Array(order, 8, [a])
+            c = v.CreateValueFromData(name, data, u8p)
+            _register(("p", a, name), ct_g)
+        out.append(c)
+    return out
+
+
+# --------------------------------------------------------------------------
 # Synthetic children
 
 
@@ -368,7 +1179,8 @@ class GooseSynth:
     def update(self):
         self.kids = []
         try:
-            self.kids = self._children()
+            kids = map_children(self.valobj)
+            self.kids = kids if kids is not None else self._children()
         except Exception:
             self.kids = []
         return False
@@ -465,9 +1277,18 @@ def summary(valobj, internal_dict, options=None):
 
 
 def _summary(valobj):
+    s = map_summary(valobj)
+    if s is not None:
+        return s
     v = valobj.GetNonSyntheticValue()
     k = classify(v.GetType())
     proc = v.GetProcess()
+    if k == "bytes":
+        # In a Goose program a uint8_t * is a variable-size value (T[], a
+        # variable-mode enum, a struct with varint fields) or a data-stack
+        # top, never a NUL-terminated string: LLDB's C-string summary
+        # misleads.
+        return "<untyped bytes>"
     if k is None and v.GetType().GetCanonicalType().IsPointerType():
         # A cascade through a pointer: a struct field Node_g *next_g, which
         # is a Node& or a Node? (DWARF does not say which), or a gs_rhdr *.
@@ -564,13 +1385,6 @@ def _summary(valobj):
     return None
 
 
-def bytes_summary(valobj, internal_dict, options=None):
-    """uint8_t *: in a Goose program this is a variable-size value (T[],
-    a variable-mode enum, a struct with varint fields) or a data-stack top,
-    never a NUL-terminated string, so LLDB's C-string summary misleads."""
-    return "<untyped bytes>"
-
-
 def _fields_text(v):
     parts = []
     for i in range(min(v.GetNumChildren(), MAX_INLINE)):
@@ -586,13 +1400,19 @@ def _fields_text(v):
 
 
 def cmd_locals(debugger, command, exe_ctx, result, internal_dict):
-    """goose-locals: the selected frame's Goose locals and arguments, without
-    compiler temporaries (tN) and hidden arguments (gs_sp), under their Goose
-    names."""
+    """goose-locals: the selected frame's Goose locals and arguments under
+    their Goose names, without compiler temporaries (tN) and hidden arguments
+    (gs_sp). With the debug map: `name: type = value`, only the locals in
+    scope at the frame's line, decoded by their Goose type."""
     try:
         frame = exe_ctx.GetFrame()
         if not frame.IsValid():
             result.SetError("no frame selected")
+            return
+        gmap = get_map(exe_ctx.GetTarget())
+        f = gmap.funcs.get(frame.GetFunctionName()) if gmap else None
+        if f is not None:
+            _locals_from_map(frame, gmap, f, result)
             return
         vs = frame.GetVariables(True, True, False, True)
         for i in range(vs.GetSize()):
@@ -600,7 +1420,10 @@ def cmd_locals(debugger, command, exe_ctx, result, internal_dict):
             cn = v.GetName() or ""
             if not _NAME_RE.match(cn):
                 continue
-            if classify(v.GetType()) is not None:
+            k = classify(v.GetType())
+            if k == "bytes":
+                s = "0x%x" % v.GetValueAsUnsigned()
+            elif k is not None:
                 s = v.GetSummary() or value_text(v)
             elif v.GetType().GetCanonicalType().IsPointerType():
                 s = "0x%x" % v.GetValueAsUnsigned()
@@ -609,6 +1432,83 @@ def cmd_locals(debugger, command, exe_ctx, result, internal_dict):
             result.AppendMessage("%s = %s" % (goose_name(cn), s))
     except Exception as e:
         result.SetError("goose-locals: %s" % e)
+
+
+def _locals_from_map(frame, gmap, f, result):
+    line = frame.GetLineEntry().GetLine()
+    dec = Decoder(frame.GetThread().GetProcess().GetTarget(), gmap)
+    ls = [l for l in f.get("locals", []) if l.get("line", 0) <= line <= l.get("end", 0)]
+    ls.sort(key=lambda l: (not l.get("param"), l.get("line", 0)))
+    for l in ls:
+        v = frame.FindVariable(l["c"])
+        if not v.IsValid():
+            result.AppendMessage("%s: %s = <not in the debug info>" % (l["name"], l["type"]))
+            continue
+        t = parse_type(l["type"])
+        addr = value_location(v.GetNonSyntheticValue(), t)
+        try:
+            txt = dec.text(addr, t)[0] if addr is not None else value_text(v)
+        except Exception as e:
+            txt = "<%s>" % e
+        result.AppendMessage("%s: %s = %s" % (l["name"], l["type"], _clip(txt)))
+
+
+def frame_name(frame, internal_dict=None):
+    """A frame's function under its Goose name, with the type arguments of a
+    generic instance: from the debug map, else the C name. For frame-format:
+    ${script.frame:goose_lldb.frame_name}."""
+    try:
+        cname = frame.GetFunctionName() or ""
+        gmap = get_map(frame.GetThread().GetProcess().GetTarget())
+        f = gmap.funcs.get(cname) if gmap else None
+        if f is None:
+            return cname or (frame.GetSymbol().GetName() or "???")
+        b = f.get("bindings")
+        if b:
+            return "%s<%s>" % (f["name"], ", ".join("%s=%s" % kv for kv in b.items()))
+        return f["name"]
+    except Exception:
+        return frame.GetFunctionName() or "???"
+
+
+def cmd_bt(debugger, command, exe_ctx, result, internal_dict):
+    """goose-bt [N]: the selected thread's frames under their Goose names
+    (from the debug map), with Goose files and lines; at most N frames."""
+    try:
+        thread = exe_ctx.GetThread()
+        if not thread.IsValid():
+            result.SetError("no thread selected")
+            return
+        n = int(command.strip()) if command.strip() else thread.GetNumFrames()
+        sel = thread.GetSelectedFrame().GetFrameID()
+        for i in range(min(n, thread.GetNumFrames())):
+            fr = thread.GetFrameAtIndex(i)
+            le = fr.GetLineEntry()
+            where = ""
+            if le.IsValid() and le.GetFileSpec().GetFilename():
+                where = " at %s:%d" % (le.GetFileSpec().GetFilename(), le.GetLine())
+            mod = fr.GetModule().GetFileSpec().GetFilename() or "?"
+            mark = "*" if i == sel else " "
+            result.AppendMessage("%s #%d: %s`%s%s" % (mark, i, mod, frame_name(fr), where))
+    except Exception as e:
+        result.SetError("goose-bt: %s" % e)
+
+
+FRAME_FORMAT = ("frame #${frame.index}: ${ansi.fg.yellow}${frame.pc}${ansi.normal}"
+                "{ ${module.file.basename}{`${script.frame:%s.frame_name}}}"
+                "{ at ${ansi.fg.cyan}${line.file.basename}${ansi.normal}:"
+                "${ansi.fg.yellow}${line.number}${ansi.normal}}\\n")
+
+
+def cmd_frame_format(debugger, command, exe_ctx, result, internal_dict):
+    """goose-frame-format [on|off]: makes LLDB's own frame lines (bt,
+    stops) show Goose function names, or puts back LLDB's default."""
+    arg = command.strip() or "on"
+    if arg == "off":
+        debugger.HandleCommand("settings clear frame-format")
+    else:
+        debugger.HandleCommand('settings set frame-format "%s"' % (FRAME_FORMAT % __name__))
+    result.AppendMessage("frame-format %s" % ("default" if arg == "off" else "shows Goose names"))
 
 
 _SCALARS = {
@@ -698,8 +1598,8 @@ def __lldb_init_module(debugger, internal_dict):
                           lldb.SBTypeFormat(lldb.eFormatDecimal,
                                             lldb.eTypeOptionCascade | lldb.eTypeOptionSkipPointers
                                             | lldb.eTypeOptionSkipReferences))
-    cat.AddTypeSummary(lldb.SBTypeNameSpecifier("uint8_t *", False),
-                       lldb.SBTypeSummary.CreateWithFunctionName("%s.bytes_summary" % mod, 0))
     cat.SetEnabled(True)
     debugger.HandleCommand("command script add -o -f %s.cmd_locals goose-locals" % mod)
     debugger.HandleCommand("command script add -o -f %s.cmd_as goose-as" % mod)
+    debugger.HandleCommand("command script add -o -f %s.cmd_bt goose-bt" % mod)
+    debugger.HandleCommand("command script add -o -f %s.cmd_frame_format goose-frame-format" % mod)

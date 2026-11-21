@@ -1,22 +1,23 @@
-@@ main_g layouts.goose:24
+@@ main_g layouts.goose:25
 -- frame variable
-(uint8_t *) sized_g = 0x_ <untyped bytes>
-(uint8_t *) short_g = 0x_ <untyped bytes>
-(uint8_t *) c_g = 0x_ <untyped bytes>
+(r_PNode_g) second_g = 0x_ PNode { v: 2, next: PNode { v: 1, next: null } }
+(uint8_t *) sized_g = 0x_ [3]
+(uint8_t *) short_g = 0x_ "hi"
+(uint8_t *) c_g = 0x_ Shape.Circle { r: 2.0 }
 (a4_Shape_g) fs_g = [Shape.Dot, Shape.Dot, Shape.Dot, Shape.Dot]
-(uint8_t *) r_g = 0x_ <untyped bytes>
+(uint8_t *) r_g = 0x_ Rec { id: 5, tag: "ab" }
 (gs_i64) count_g = 1
-(Cursor_g) cur_g = Cursor { line: 1, flag: 1 }
+(Cursor_g) cur_g = Cursor { line: 1, flag: true }
 (uint8_t *) gs_pb_pool_g = 0x_ <untyped bytes>
 -- goose-locals
-sized = 0x_
-short = 0x_
-c = 0x_
-fs = [Shape.Dot, Shape.Dot, Shape.Dot, Shape.Dot]
-r = 0x_
-count = 1
-cur = Cursor { line: 1, flag: 1 }
-gs_pb_pool = 0x_
+second: PNode& = PNode { v: 2, next: PNode { v: 1, next: null } }
+sized: i64[..] = [3]
+short: u8[varint] = "hi"
+c: Shape.. = Shape.Circle { r: 2.0 }
+fs: Shape[4] = [Shape.Dot, Shape.Dot, Shape.Dot, Shape.Dot]
+r: Rec = Rec { id: 5, tag: "ab" }
+count: i64 = 1
+cur: Cursor = Cursor { line: 1, flag: true }
 -- target variable gs_globals_main
 (gs_globals_t) gs_globals_main = {
   pool_g = len=0, element type not in debug info
@@ -32,8 +33,8 @@ gs_pb_pool = 0x_
 len=0
 -- p *(PNode_g(*)[2])gs_globals_main.pool_g.base
 (PNode_g[2]) {
-  [0] = PNode { v: 1, next: 0 }
-  [1] = PNode { v: 2, next: 1 }
+  [0] = PNode { v: 1, next: null }
+  [1] = PNode { v: 2, next: PNode { v: 1, next: null } }
 }
 -- memory read -s1 -c9 -fu c_g
 0x_: 0
@@ -45,5 +46,16 @@ len=0
 0x_: 0
 0x_: 0
 0x_: 64
+-- test-children cur_g
+cur_g: 2 children
+  line (uint8_t *) = 1
+  flag (uint8_t *) = true
+-- test-children r_g
+r_g: 2 children
+  id (uint8_t *) = 5
+  tag (l4_u8) = "ab"
+-- test-children c_g
+c_g: 1 children
+  r (double) = 2
 2x[3]hiCircle { 2.0 }[Shape.Dot, Shape.Dot, Shape.Dot, Shape.Dot]51true
 Process exited with status = 0 (0x00000000)

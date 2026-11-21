@@ -8,7 +8,7 @@ fn inc(x: i64) -> i64 { x + 1 }
 fn bump(r: i64&, o: Node?) -> i64 {
     r += 1;
     let found = if o { o.v } else { -1 };
-    return found + r; // BREAK lldb: test-children o_g; test-children r_g
+    return found + r; // BREAK lldb: test-children o_g; test-children r_g; goose-bt 3; goose-frame-format; bt 3; goose-frame-format off
 }
 
 fn main() {

@@ -1,7 +1,7 @@
 """test-stop: the breakpoint command run.py uses. At the first stop in each
 function and line it prints "@@ function file:line", then the output of
 `frame variable`, `goose-locals` and any further commands given to it,
-separated by ";". A Goose line that compiles to several
+separated by ";"; with a leading "!", only those commands. A Goose line that compiles to several
 C statements can stop more than once; later stops at the same place print
 nothing, so the record does not depend on how the C compiler splits lines."""
 
@@ -19,8 +19,9 @@ def stop(debugger, command, exe_ctx, result, internal_dict):
     _seen.add(key)
     lines = ["@@ %s %s:%d" % key]
     ci = debugger.GetCommandInterpreter()
-    extra = [c.strip() for c in command.split(";") if c.strip()]
-    for cmd in ["frame variable", "goose-locals"] + extra:
+    only = command.strip().startswith("!")
+    extra = [c.strip() for c in command.strip().lstrip("!").split(";") if c.strip()]
+    for cmd in ([] if only else ["frame variable", "goose-locals"]) + extra:
         r = lldb.SBCommandReturnObject()
         ci.HandleCommand(cmd, exe_ctx, r)
         lines.append("-- " + cmd)
