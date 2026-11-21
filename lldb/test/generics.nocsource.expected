@@ -18,11 +18,11 @@ v = View { name: "view", vals: [4, 5, 6] }
 -- test-children o_g
 o_g: 2 children
   tag (uint8_t) = 1
-  u (Opt_g_i64::(unnamed union)) =
+  u ((unnamed union)) =
 -- test-children e_g
 e_g: 2 children
   tag (uint8_t) = 0
-  u (Opt_g_i64::(unnamed union)) =
+  u ((unnamed union)) =
 -- test-children v_g
 v_g: 2 children
   name_g (sl_u8) = "view"

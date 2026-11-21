@@ -29,7 +29,7 @@ rect_g: 2 children
 -- test-children dot_g
 dot_g: 2 children
   tag (uint8_t) = 2
-  u (Shape_g::(unnamed union)) =
+  u ((unnamed union)) =
 -- test-children label_g
 label_g: 1 children
   *label_g (uint8_t) = 0

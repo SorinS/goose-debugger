@@ -46,6 +46,20 @@ goose build --debug -o prog prog.goose
 lldb -o 'b prog.goose:12' -o run ./prog
 ```
 
+## Platforms
+
+- **macOS arm64** (clang, Apple lldb-2100): everything here is developed and
+  tested on it.
+- **Linux x86_64** (Ubuntu 20.04; gcc 9.4 and clang 17; LLDB 16, gdb 9.2):
+  patches 0001-0004 pass `line_directives.sh` (15/15, with either C
+  compiler), `backtrace.sh` (22/22) and the LLDB module tests (9/9). gdb
+  also stops on Goose lines, once per line and each time round a loop.
+  gdb older than 10 cannot read clang's DWARF 5: use gcc, `-gdwarf-4`, or
+  LLDB. The abort backtraces of 0004 need the compiler's
+  `jit_runtime.c` built with frame pointers (0004 does that); crash
+  backtraces work without.
+- **Windows**: being checked.
+
 ## Status
 
 1. `#line` under `--debug`: done as draft patches 0001 to 0003, applied

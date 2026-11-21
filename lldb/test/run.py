@@ -43,6 +43,20 @@ DWARF_ONLY = ("structs", "generics")
 
 GOOSE_LOCAL = re.compile(r"^\([^)]*\) [A-Za-z_][A-Za-z0-9_]*?_g(_?[0-9]+)? = ")
 ADDR = re.compile(r"0x[0-9a-fA-F]+")
+# LLDB before 17 has `p` name its result ($0 = ...); later ones, Apple's
+# among them, print it unnamed. Record it unnamed either way.
+PERSISTENT = re.compile(r"^(\([^)]*\)) \$[0-9]+ = ")
+# clang nests a struct's anonymous union in the struct's DWARF, so LLDB names
+# it Shape_g::(unnamed union); gcc puts it at file scope, (unnamed union).
+SCOPED_ANON = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*::(?=\(unnamed (union|struct)\))")
+
+
+def unnamed(line):
+    m = PERSISTENT.match(line)
+    if not m:
+        return line
+    rest = line[m.end():]
+    return m.group(1) + (" " if rest.startswith("{") else "  ") + rest
 
 
 def build(goose, src, out):
@@ -124,7 +138,7 @@ def record(lldb, exe, src, env, with_map):
         elif section == "goose-locals" and " = " in line:
             out.append(ADDR.sub("0x_", line))
         elif section not in (None, "frame variable", "goose-locals") and line.strip():
-            out.append(ADDR.sub("0x_", line))
+            out.append(ADDR.sub("0x_", SCOPED_ANON.sub("", unnamed(line))))
     if not any(l.startswith("@@ ") for l in out):
         out.append("!! no stop recorded; lldb said:")
         out += r.stdout.splitlines()[-20:]
