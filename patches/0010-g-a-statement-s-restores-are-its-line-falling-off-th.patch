@@ -1,0 +1,60 @@
+From 73fe0be8dc93624f923d44e6183eaf7f4c91a7c1 Mon Sep 17 00:00:00 2001
+From: SorinS <ssuciu@gmail.com>
+Date: Sun, 22 Nov 2026 09:35:31 +0000
+Subject: [PATCH] -g: a statement's restores are its line; falling off the end
+ is the `}`
+
+Stepping over a statement stopped once more at the fn line: the restores
+its scope emits (a print's scratch cursor reset) were charged to the
+enclosing line, which at the top level is the fn's. They are now the
+statement's own. The implicit return at the end of a body is charged to the
+closing brace rather than the fn line, as a C compiler does.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/codegen_emit.h  | 2 ++
+ src/codegen_stmts.h | 7 ++++---
+ 2 files changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/src/codegen_emit.h b/src/codegen_emit.h
+index 8a651208..34915d1a 100644
+--- a/src/codegen_emit.h
++++ b/src/codegen_emit.h
+@@ -721,6 +721,8 @@ inline void CodeGen::EmitSpec(FnSpec *sp, bool er) {
+             L(CT(sp->rets[curinfo->cret]), " ", d, " = {0};");
+             L("return ", d, ";");
+         } else {
++            // Falling off the end returns at the closing `}`.
++            if (linedirs && sp->sf->end.line > 0) srcline = sp->sf->end;
+             Epilogue("");
+         }
+     }
+diff --git a/src/codegen_stmts.h b/src/codegen_stmts.h
+index 66766dd7..b18eb710 100644
+--- a/src/codegen_stmts.h
++++ b/src/codegen_stmts.h
+@@ -45,17 +45,18 @@ inline size_t CodeGen::GenInlineArgs(Block *b) {
+ inline void CodeGen::GenStmt(Node *n) {
+     PushSc(SC_STMT);
+     termjump = false;
+-    // What the enclosing statement emits after this one (a loop's step, its
+-    // closing restores) is the enclosing statement's again.
++    // The statement's own restores (PopSc) are its line; what the enclosing
++    // statement emits after this one (a loop's step, its closing restores) is
++    // the enclosing statement's again.
+     auto outer = srcline;
+     if (n->line.line > 0) srcline = n->line;
+     GenStmt2(n);
+-    srcline = outer;
+     if (termjump) {   // Nothing runs after a jump.
+         cscopes.back().saves.clear();
+         cscopes.back().defers.clear();
+     }
+     PopSc();
++    srcline = outer;
+     termjump = false;
+ }
+ 
+-- 
+2.50.1 (Apple Git-155)
+

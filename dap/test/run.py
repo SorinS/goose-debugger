@@ -536,8 +536,10 @@ def test_breakpoint_locations(t):
     s = t.session("area").start()
     r = s.d.request("breakpointLocations", {"source": {"path": src}, "line": 1, "endLine": 12})
     lines = sorted(b["line"] for b in r["body"]["breakpoints"])
-    check({2, 3, 7, 8, 9, 11} <= set(lines), "lines: %s" % lines)
-    check(not {4, 5, 10, 12} & set(lines), "lines without code: %s" % lines)
+    # 12 is main's `}`, where falling off the end returns; area's (4) is not
+    # reached past its `return`.
+    check({2, 3, 7, 8, 9, 11, 12} <= set(lines), "lines: %s" % lines)
+    check(not {4, 5, 10} & set(lines), "lines without code: %s" % lines)
     s.run_to_exit(0)
     s.finish()
 

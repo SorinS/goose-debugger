@@ -71,6 +71,11 @@ check "a loop line stops each time round" '^3$' "$hits"
 check "first stop is in the loop" '\(gs_i64\) i_g = 0' "$lldb_out"
 check "last stop is the third time round" '\(gs_i64\) i_g = 2' "$lldb_out"
 
+# Stepping over a print goes to the next line: the print's own restores are
+# its line, not the fn's (6), and falling off main returns at its `}` (12).
+lldb_out=$(lldb --batch -o 'b area.goose:11' -o run -o next -o 'frame info' -o quit ./area 2>&1)
+check "next from a print steps to the closing brace" '^frame #0: .*main_g.* at area\.goose:12' "$lldb_out"
+
 echo
 if ((fails)); then echo "$fails failed"; exit 1; fi
 echo "all passed"
