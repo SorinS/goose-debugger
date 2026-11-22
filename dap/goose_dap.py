@@ -1481,6 +1481,10 @@ class Proxy:
     def rewrite_event(self, e):
         name = e.get("event")
         body = e.get("body") if isinstance(e.get("body"), dict) else None
+        # goose_dap_lldb.py's answers to the proxy, which lldb-dap also
+        # echoes to the console.
+        if name == "output" and body is not None and "GOOSE_DAP:" in str(body.get("output") or ""):
+            return None
         if name == "initialized":
             self.ensure_map(force=True)
             return e
