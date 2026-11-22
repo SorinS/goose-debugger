@@ -132,6 +132,10 @@ def record(cdb_exe, exe, name, gmap, where, lines, work, natvis):
     globals_ = (gmap.get("globals") or {}).get("vars") or []
     with open(script, "w") as f:
         f.write("sxd av\n.lines -e\n")
+        # goose build -g embeds the program's natvis in the PDB (patch 0009);
+        # load the symbols now and drop it, so the raw run is raw and the
+        # natvis run is these files alone.
+        f.write(".reload /f %s.exe\n.nvunloadall\n" % name)
         if natvis:
             # The program's file first: on a name both define, the first
             # loaded wins.
