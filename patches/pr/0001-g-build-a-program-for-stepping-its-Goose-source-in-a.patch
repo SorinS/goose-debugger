@@ -1,4 +1,4 @@
-From 2fcc8b17c95200b025830f80db41886af9d71bd5 Mon Sep 17 00:00:00 2001
+From f1d340b8ab9aa8cecb2836100c2544d0b2d729d4 Mon Sep 17 00:00:00 2001
 From: SorinS <ssuciu@gmail.com>
 Date: Sun, 22 Nov 2026 10:25:30 +0000
 Subject: [PATCH] -g: build a program for stepping its Goose source in a
@@ -25,7 +25,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  CMakeLists.txt         |   1 +
  docs/command_line.md   |   5 +-
- docs/debugger.md       | 159 +++++++++++++++++++++++++++++++
+ docs/debugger.md       | 161 +++++++++++++++++++++++++++++++
  docs/index.md          |   2 +
  src/codegen.h          |  96 ++++++++++++++++++-
  src/codegen_debugmap.h | 209 +++++++++++++++++++++++++++++++++++++++++
@@ -36,7 +36,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  src/codegen_types.h    |   5 +
  src/includes.h         |   1 +
  src/main.cpp           |  52 ++++++++--
- 13 files changed, 585 insertions(+), 18 deletions(-)
+ 13 files changed, 587 insertions(+), 18 deletions(-)
  create mode 100644 docs/debugger.md
  create mode 100644 src/codegen_debugmap.h
 
@@ -85,10 +85,10 @@ index 1801fc7d..d7450588 100644
  | `--stacks` | Report how many data stacks the program and each of its workers use, what that adds up to, and the cap it puts on `hardware_threads()`. |
 diff --git a/docs/debugger.md b/docs/debugger.md
 new file mode 100644
-index 00000000..b91a0008
+index 00000000..c05d3f83
 --- /dev/null
 +++ b/docs/debugger.md
-@@ -0,0 +1,159 @@
+@@ -0,0 +1,161 @@
 +# Debugging Goose programs
 +
 +A Goose program is C by the time it runs, so the C debuggers debug it:
@@ -220,8 +220,10 @@ index 00000000..b91a0008
 +lldb-dap), and the IDE's debugger shows the call stack, variables and
 +watches; F8 steps over and F7 steps into.
 +
-+**VS Code**: install LLVM's *LLDB DAP* extension and set its
-+`lldb-dap.executable-path` setting to `goose-dap`. A launch configuration:
++**VS Code** (and VSCodium): install LLVM's *LLDB DAP* extension and set
++its `lldb-dap.executable-path` setting to goose-dap's full path (the
++extension takes a file, not a command on PATH). A launch configuration,
++which builds the program and starts it:
 +
 +```json
 +{
