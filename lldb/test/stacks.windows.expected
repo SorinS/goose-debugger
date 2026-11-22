@@ -1,0 +1,58 @@
+@@ fill_g stacks.goose:7
+-- frame variable
+(long long) n_g = 4
+(gs_rref) out_g = [0, 1, 4]
+(long long) last_g = 0
+(long long) i_g = 3
+-- goose-locals
+n: i64 = 4
+out: i64[>..]& = [0, 1, 4]
+last: i64 = 0
+i: i64 = 3
+-- frame variable out_g.hdr->len
+(long long) out_g.hdr->len = 3
+-- goose-as out_g i64
+len=3
+  [0] = 0
+  [1] = 1
+  [2] = 4
+-- p *(gs_i64(*)[3])out_g.hdr->base
+note: Expression evaluation in pure C not supported. Ran expression as 'ISO C++'.
+error: <user expression 1>:1:11: expected expression
+    1 | *(gs_i64(*)[3])out_g.hdr->base
+      |           ^
+error: <user expression 1>:1:16: expected ';' after expression
+    1 | *(gs_i64(*)[3])out_g.hdr->base
+      |                ^
+      |                ;
+@@ fill_g stacks.goose:10
+-- frame variable
+(long long) n_g = 4
+(gs_rref) out_g = [0, 1, 4, 9]
+(long long) last_g = 4
+(long long) i_g = 4
+-- goose-locals
+n: i64 = 4
+out: i64[>..]& = [0, 1, 4, 9]
+last: i64 = 4
+i: i64 = 4
+@@ main_g stacks.goose:23
+-- frame variable
+(gs_rhdr) squares_g = [0, 1, 4, 9]
+(unsigned char *) frozen_g = 0x_ [7, 8, 9]
+(unsigned char *) word_g = 0x_ "frozen"
+(unsigned char *) rec_g = 0x_ Rec { id: 300, name: "rec" }
+(gs_rhdr) words_g = ["one", "two"]
+(gs_rhdr) msg_g = "n=4"
+-- goose-locals
+squares: i64[>..] = [0, 1, 4, 9]
+frozen: i64[] = [7, 8, 9]
+word: u8[] = "frozen"
+rec: Rec = Rec { id: 300, name: "rec" }
+words: u8[][>..] = ["one", "two"]
+msg: u8[>..] = "n=4"
+-- goose-as msg_g u8
+len=3 "n=4"
+-- goose-as word_g u8[]
+len=6 "frozen"
+Process exited with status = 0 (0x00000000)

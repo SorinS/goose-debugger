@@ -14,6 +14,14 @@ Each sample runs three ways:
 A compiler that writes no map (before patch 0005) is checked against
 <name>.nomap.expected only.
 
+On Windows (LLDB on a PDB) a record is checked against the same files,
+both sides put in Windows form first (windows_form): C type names as the
+PDB spells them (long long for gs_i64 and int64_t, Node_g * for o_Node_g),
+and the program's own output dropped, which LLDB there does not pass
+through. Where Windows output differs beyond that (an expression LLDB
+evaluates as C++ against the PDB's types), <label>.windows.expected holds
+the record, and `--update` there writes only those that need one.
+
   run.py              check every sample
   run.py --update     rewrite the .expected files from this run
   run.py arrays refs  only these samples
@@ -48,9 +56,61 @@ THREAD = re.compile(r"^(\s*\* thread #\d+), .*?(, stop reason)")
 # LLDB before 17 has `p` name its result ($0 = ...); later ones, Apple's
 # among them, print it unnamed. Record it unnamed either way.
 PERSISTENT = re.compile(r"^(\([^)]*\)) \$[0-9]+ = ")
+# A Windows module is named with its suffix: refs.exe`bump.
+EXE_MODULE = re.compile(r"\b([A-Za-z0-9_]+)\.exe`")
 # clang nests a struct's anonymous union in the struct's DWARF, so LLDB names
 # it Shape_g::(unnamed union); gcc puts it at file scope, (unnamed union).
 SCOPED_ANON = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*::(?=\(unnamed (union|struct)\))")
+
+
+# C type spellings and the PDB's for them, word by word.
+PDB_SPELLINGS = [
+    (re.compile(r"\b(?:gs_i64|int64_t)\b"), "long long"),
+    (re.compile(r"\b(?:gs_u64|uint64_t)\b"), "unsigned long long"),
+    (re.compile(r"\b(?:gs_i32|int32_t)\b"), "int"),
+    (re.compile(r"\b(?:gs_u32|uint32_t)\b"), "unsigned int"),
+    (re.compile(r"\b(?:gs_i16|int16_t)\b"), "short"),
+    (re.compile(r"\b(?:gs_u16|uint16_t)\b"), "unsigned short"),
+    (re.compile(r"\b(?:gs_i8|int8_t)\b"), "signed char"),
+    (re.compile(r"\b(?:gs_u8|uint8_t)\b"), "unsigned char"),
+    (re.compile(r"\b(?:gs_f64)\b"), "double"),
+    (re.compile(r"\b(?:gs_f32)\b"), "float"),
+]
+# A T& or T? local's typedef, which the PDB does not keep: (r_i64) or
+# (o_Node_g), and an anonymous union, which it names Owner::<unnamed-tag>.
+REF_TYPEDEF = re.compile(r"\((?:r|o)_([A-Za-z0-9_]+)\)")
+GOOSE_SCALAR_C = {"i8": "int8_t", "u8": "uint8_t", "i16": "int16_t", "u16": "uint16_t",
+                  "i32": "int32_t", "u32": "uint32_t", "i64": "int64_t", "u64": "uint64_t",
+                  "f32": "float", "f64": "double", "bool": "uint8_t"}
+PDB_ANON = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*::<unnamed-tag>")
+
+
+def windows_form(text, program_output):
+    """A record as LLDB on a PDB would give it (see the docstring)."""
+    lines = text.splitlines()
+    k = len(program_output)
+    for i, l in enumerate(lines):
+        if k and l.startswith("Process") and "exited" in l and lines[max(0, i - k):i] == program_output:
+            del lines[i - k:i]
+            break
+    out = []
+    for l in lines:
+        l = REF_TYPEDEF.sub(lambda m: "(%s *)" % GOOSE_SCALAR_C.get(m.group(1), m.group(1)), l)
+        l = PDB_ANON.sub("(unnamed union)", l)
+        for rx, spelled in PDB_SPELLINGS:
+            l = rx.sub(spelled, l)
+        out.append(l)
+    return "\n".join(out) + "\n"
+
+
+def program_output(exe):
+    """What the program prints when run on its own, by line."""
+    try:
+        r = subprocess.run([exe], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                           cwd=os.path.dirname(exe), timeout=60)
+        return [l.rstrip("\r") for l in r.stdout.splitlines()]
+    except (OSError, subprocess.TimeoutExpired):
+        return []
 
 
 def unnamed(line):
@@ -125,6 +185,7 @@ def record(lldb, exe, src, env, with_map):
     out = []
     section = None
     for line in r.stdout.splitlines():
+        line = EXE_MODULE.sub(r"\1`", line)
         if line.startswith("@@ "):
             out.append(line)
             section = None
@@ -160,7 +221,7 @@ def main(argv):
     failed = []
     for s in samples:
         src = os.path.join(HERE, s + ".goose")
-        exe = os.path.join(work, s)
+        exe = os.path.join(work, s + (".exe" if os.name == "nt" else ""))
         build(goose, src, exe)
         if writes_map(goose, src, work):
             runs = [("", {}, s, True), ("nomap", NOMAP, s + ".nomap", False)]
@@ -168,11 +229,23 @@ def main(argv):
             runs = [("", {}, s + ".nomap", False)]
         if s in DWARF_ONLY:
             runs.append(("nocsource", NOCSOURCE, s + ".nocsource", False))
+        output = program_output(exe) if os.name == "nt" else []
         for variant, env, label, with_map in runs:
             got = record(lldb, exe, src, env, with_map)
             exp_path = os.path.join(HERE, label + ".expected")
+            win_path = os.path.join(HERE, label + ".windows.expected")
+            if os.name == "nt" and (os.path.exists(win_path) or update):
+                if update:
+                    with open(exp_path) as f:
+                        common = windows_form(f.read(), output) == windows_form(got, output)
+                    if common:
+                        if os.path.exists(win_path):
+                            os.remove(win_path)
+                        print("ok  ", label, "(no Windows record needed)")
+                        continue
+                exp_path = win_path
             if update:
-                with open(exp_path, "w") as f:
+                with open(exp_path, "w", newline="\n") as f:
                     f.write(got)
                 print("wrote", os.path.basename(exp_path))
                 continue
@@ -181,6 +254,8 @@ def main(argv):
                     want = f.read()
             except OSError:
                 want = None
+            if os.name == "nt" and want is not None:
+                want, got = windows_form(want, output), windows_form(got, output)
             if got == want:
                 print("ok  ", label)
             else:
@@ -192,7 +267,7 @@ def main(argv):
                     import difflib
                     sys.stdout.writelines(difflib.unified_diff(
                         want.splitlines(True), got.splitlines(True),
-                        label + ".expected", label + ".got"))
+                        os.path.basename(exp_path), label + ".got"))
                 else:
                     print("  no %s; run with --update to create it" % os.path.basename(exp_path))
     if not os.environ.get("GOOSE_LLDB_WORK"):

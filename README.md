@@ -37,6 +37,9 @@ patches for its author, against the goose.git commit each one names.
     and `goose.lldbDapPath` settings, a **Goose: Debug** command, and
     breakpoints in `.goose` files. Its `goose-language.vsix` still has to be
     rebuilt (`python vscode/build_vsix.py`, which needs the network).
+  - `0009`: under `-g` the compiler also writes `<stem>.natvis` beside the
+    map, and an MSVC-style link embeds it in the PDB (`/NATVIS`), so Visual
+    Studio and cdb show Goose values with nothing to load.
 - `patches/upstream/`: the same final change as three patches for the
   Goose author, each building and passing on its own: `-g` itself, the
   debug map, and `goose run -g`'s backtraces.
@@ -51,9 +54,8 @@ patches for its author, against the goose.git commit each one names.
 - `natvis/`: Windows: `goose.natvis` for the generic names,
   `gen_natvis.py` for a program's own types (from its debug map and C),
   and `goose.js`, a WinDbg/cdb script that decodes what natvis cannot
-  (`!goose_locals`, `!goose_globals`). `patches/proposed/natvis-embed.diff`
-  would have `goose build -g` with MSVC embed the natvis in the PDB
-  (`/NATVIS`); drafted, not yet built into goose.
+  (`!goose_locals`, `!goose_globals`). With patch 0009, `goose build -g`
+  with MSVC embeds the program's natvis in its PDB itself (`/NATVIS`).
 - `lldb/`: `goose_lldb.py`, LLDB summaries and synthetic children for Goose
   values, and its tests.
 - `tests/`: checks of the patched compiler: `line_directives.sh` through
@@ -106,8 +108,10 @@ lldb -o 'b prog.goose:12' -o run ./prog
   backtraces are off on Windows by design. With 0005-0007, natvis and
   `goose.js` pass their cdb tests (14/14). LLDB 23 on PDB runs
   `goose_lldb.py` and `goose-locals` decodes as on macOS, but PDB's
-  canonical type names (`unsigned char *`, `long long`) still defeat
-  some of its matching.
+  canonical type names (`unsigned char *`, `long long`) are handled: the
+  LLDB module tests pass 16/16 there with LLDB 23, `goose-catch` 7/7, and
+  goose-dap 18/18 with lldb-dap 23. With 0009 the natvis is embedded and
+  cdb shows the same values with no `.nvload`.
 
 ## Status
 

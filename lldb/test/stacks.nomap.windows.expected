@@ -1,0 +1,58 @@
+@@ fill_g stacks.goose:7
+-- frame variable
+(long long) n_g = 4
+(gs_rref) out_g = len=3, element type not in debug info
+(long long) last_g = 0
+(long long) i_g = 3
+-- goose-locals
+n = 4
+out = len=3, element type not in debug info
+last = 0
+i = 3
+-- frame variable out_g.hdr->len
+(long long) out_g.hdr->len = 3
+-- goose-as out_g i64
+len=3
+  [0] = 0
+  [1] = 1
+  [2] = 4
+-- p *(gs_i64(*)[3])out_g.hdr->base
+note: Expression evaluation in pure C not supported. Ran expression as 'ISO C++'.
+error: <user expression 1>:1:11: expected expression
+    1 | *(gs_i64(*)[3])out_g.hdr->base
+      |           ^
+error: <user expression 1>:1:16: expected ';' after expression
+    1 | *(gs_i64(*)[3])out_g.hdr->base
+      |                ^
+      |                ;
+@@ fill_g stacks.goose:10
+-- frame variable
+(long long) n_g = 4
+(gs_rref) out_g = len=4, element type not in debug info
+(long long) last_g = 4
+(long long) i_g = 4
+-- goose-locals
+n = 4
+out = len=4, element type not in debug info
+last = 4
+i = 4
+@@ main_g stacks.goose:23
+-- frame variable
+(gs_rhdr) squares_g = len=4, element type not in debug info
+(unsigned char *) frozen_g = 0x_ <untyped bytes>
+(unsigned char *) word_g = 0x_ <untyped bytes>
+(unsigned char *) rec_g = 0x_ <untyped bytes>
+(gs_rhdr) words_g = len=2, element type not in debug info
+(gs_rhdr) msg_g = len=3, element type not in debug info
+-- goose-locals
+squares = len=4, element type not in debug info
+frozen = 0x_
+word = 0x_
+rec = 0x_
+words = len=2, element type not in debug info
+msg = len=3, element type not in debug info
+-- goose-as msg_g u8
+len=3 "n=4"
+-- goose-as word_g u8[]
+len=6 "frozen"
+Process exited with status = 0 (0x00000000)

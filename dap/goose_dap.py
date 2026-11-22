@@ -49,6 +49,28 @@ GOOSE_LLDB = os.path.normpath(os.path.join(HERE, "..", "lldb", "goose_lldb.py"))
 HELPER = os.path.join(HERE, "goose_dap_lldb.py")
 DEFAULT_LLDB_DAP = "/Library/Developer/CommandLineTools/usr/bin/lldb-dap"
 
+# ---- Platform: where the compiler keeps its builds, and how an executable
+# and a path are spelled (Windows: .exe, backslashes, a drive letter, a
+# case-blind file system).
+WINDOWS = os.name == "nt"
+EXE_SUFFIX = ".exe" if WINDOWS else ""
+
+
+def goose_home():
+    """GOOSE_HOME, else ~/.goose, as the compiler has it (toolchain.h)."""
+    return os.environ.get("GOOSE_HOME") or os.path.join(os.path.expanduser("~"), ".goose")
+
+
+def _slashed(path):
+    return path.replace("\\", "/").lower() if WINDOWS else path
+
+
+def in_runtime_build(path):
+    """Whether path is in the compiler's runtime builds: GOOSE_HOME/build/runtime/."""
+    p = _slashed(path)
+    root = _slashed(goose_home()).rstrip("/") + "/build/runtime/"
+    return p.startswith(root) or "/.goose/build/runtime/" in p
+
 GOOSE_FILTER = "goose_runtime"
 RUNTIME_ERROR_FUNCS = ("gs_fail", "gs_panic")
 INTERNAL_TIMEOUT = 15.0
@@ -695,7 +717,8 @@ class Proxy:
                 return
         if source and not args.get("program"):
             base = os.path.splitext(os.path.basename(source))[0]
-            args["program"] = os.path.join(args.get("cwd") or os.path.dirname(os.path.abspath(source)), base)
+            args["program"] = os.path.join(args.get("cwd") or os.path.dirname(os.path.abspath(source)),
+                                           base + EXE_SUFFIX)
         if build:
             ok, message = self.build(goose, source, args.get("program"), build_args, args.get("cwd"))
             if not ok:
@@ -893,7 +916,7 @@ class Proxy:
         path = (f.get("source") or {}).get("path") or ""
         if name.startswith("gs_"):
             return True
-        if os.path.basename(path) == "goose_runtime.c" or "/.goose/build/runtime/" in path:
+        if os.path.basename(path) == "goose_runtime.c" or in_runtime_build(path):
             return True
         return False
 
@@ -1560,12 +1583,12 @@ class Proxy:
 
     def guess_map_paths(self):
         """Without an answer from LLDB: the newest
-        ~/.goose/build/prog/<stem>-*/<stem>.debug.json for the program."""
+        GOOSE_HOME/build/prog/<stem>-*/<stem>.debug.json for the program."""
         prog = self.launch_args.get("program")
         if not isinstance(prog, str):
             return []
         stem = os.path.splitext(os.path.basename(prog))[0]
-        root = os.path.join(os.path.expanduser("~"), ".goose", "build", "prog")
+        root = os.path.join(goose_home(), "build", "prog")
         best = None
         try:
             for d in os.listdir(root):

@@ -70,9 +70,12 @@ CodeLLDB use `goose_lldb.py` instead (see "LLDB on Windows" below).
 /NATVIS:prog.natvis`, last on the line) stores the file in the PDB, and
 Visual Studio and cdb load it from there with nothing to configure: `.nvlist`
 then shows `prog.exe (embedded NatVis "...\prog.natvis")`. Checked with cdb
-on a goose `-g` build relinked by hand. `goose build -g` does not do it yet;
-the proposal is a compiler change that writes `<stem>.natvis` beside the map
-and passes `/NATVIS:` to the MSVC link.
+on a goose `-g` build relinked by hand, and done by goose itself with patch
+0009: under `-g` it writes `<stem>.natvis` beside the map (a C++ port of
+`gen_natvis.py --all`, `src/natvis.h`) and an MSVC-style link (cl,
+clang-cl) passes `/NATVIS:` to the linker. With it, cdb shows Goose values
+in a `goose build -g` program with no `.nvload`; `--debug` alone embeds
+nothing.
 
 ## What it shows
 

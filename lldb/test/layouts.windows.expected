@@ -1,0 +1,65 @@
+@@ main_g layouts.goose:25
+-- frame variable
+(PNode_g *) second_g = 0x_ PNode { v: 2, next: PNode { v: 1, next: null } }
+(unsigned char *) sized_g = 0x_ [3]
+(unsigned char *) short_g = 0x_ "hi"
+(unsigned char *) c_g = 0x_ Shape.Circle { r: 2.0 }
+(a4_Shape_g) fs_g = [Shape.Dot, Shape.Dot, Shape.Dot, Shape.Dot]
+(unsigned char *) r_g = 0x_ Rec { id: 5, tag: "ab" }
+(long long) count_g = 1
+(Cursor_g) cur_g = Cursor { line: 1, flag: true }
+(unsigned char *) gs_pb_pool_g = 0x_ <untyped bytes>
+-- goose-locals
+second: PNode& = PNode { v: 2, next: PNode { v: 1, next: null } }
+sized: i64[..] = [3]
+short: u8[varint] = "hi"
+c: Shape.. = Shape.Circle { r: 2.0 }
+fs: Shape[4] = [Shape.Dot, Shape.Dot, Shape.Dot, Shape.Dot]
+r: Rec = Rec { id: 5, tag: "ab" }
+count: i64 = 1
+cur: Cursor = Cursor { line: 1, flag: true }
+-- goose-globals
+pool: PNode[>..] = [PNode { v: 1, next: null }, PNode { v: 2, next: PNode { v: 1, next: null } }]
+log: u8[>..] = "x"
+-- target variable gs_globals_main
+(gs_globals_t) gs_globals_main = {
+  pool_g = [PNode { v: 1, next: null }, PNode { v: 2, next: PNode { v: 1, next: null } }]
+  gs_gstk_pool_g = {
+    top = 0x_ <untyped bytes>
+  }
+  log_g = "x"
+  gs_gstk_log_g = {
+    top = 0x_ <untyped bytes>
+  }
+}
+-- goose-as gs_globals_main.pool_g PNode_g
+len=2
+  [0] = PNode { v: 1, next: null }
+  [1] = PNode { v: 2, next: PNode { v: 1, next: null } }
+-- p *(PNode_g(*)[2])gs_globals_main.pool_g.base
+note: Expression evaluation in pure C not supported. Ran expression as 'ISO C++'.
+error: <user expression 0>:1:13: size of array element of type 'PNode_g' (12 bytes) isn't a multiple of its alignment (8 bytes)
+    1 | *(PNode_g(*)[2])gs_globals_main.pool_g.base
+      |             ^
+-- memory read -s1 -c9 -fu c_g
+0x_: 0
+0x_: 0
+0x_: 0
+0x_: 0
+0x_: 0
+0x_: 0
+0x_: 0
+0x_: 0
+0x_: 64
+-- test-children cur_g
+cur_g: 2 children
+  line (unsigned char *) = 1
+  flag (unsigned char *) = true
+-- test-children r_g
+r_g: 2 children
+  id (unsigned char *) = 5
+  tag (l4_u8) = "ab"
+-- test-children c_g
+c_g: 1 children
+  r (double) = 2
+Process exited with status = 0 (0x00000000)

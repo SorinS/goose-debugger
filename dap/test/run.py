@@ -61,8 +61,97 @@ def eq(got, want, what):
         raise Fail("%s: got %r, want %r" % (what, got, want))
 
 
+# ---- Windows: the adapter run through Python (goose-dap is a sh script),
+# executables named .exe, and processes listed, probed and killed through
+# the Win32 API (os.kill(pid, 0) there sends a Ctrl-C to a console group).
+# A Windows process keeps its parent's pid after the parent exits, and pids
+# are soon reused: csrss.exe and wininit.exe name a long-gone smss.exe, whose
+# pid the adapter may have now. So a child counts only if it started after
+# its parent, and only the adapter's, LLDB's and the samples' images are
+# ever killed (killing csrss.exe stops the machine).
+WINDOWS = os.name == "nt"
+EXE = ".exe" if WINDOWS else ""
+ADAPTER = [sys.executable, "-u", os.path.join(DAP, "goose_dap.py")] if WINDOWS else [GOOSE_DAP]
+KILLABLE = {"python.exe", "lldb.exe", "lldb-dap.exe", "lldb-server.exe", "conhost.exe"}
+
+
+def _win_processes():
+    """{pid: (parent pid, creation time or None, image name)}, from a
+    Toolhelp snapshot."""
+    import ctypes
+    from ctypes import wintypes
+
+    class PE(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+                    ("th32ProcessID", wintypes.DWORD), ("th32DefaultHeapID", ctypes.c_void_p),
+                    ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                    ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", ctypes.c_long),
+                    ("dwFlags", wintypes.DWORD), ("szExeFile", ctypes.c_char * 260)]
+    k = ctypes.windll.kernel32
+    k.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    k.OpenProcess.restype = wintypes.HANDLE
+    snap = k.CreateToolhelp32Snapshot(2, 0)   # TH32CS_SNAPPROCESS
+    out = {}
+    e = PE()
+    e.dwSize = ctypes.sizeof(PE)
+    ok = k.Process32First(snap, ctypes.byref(e))
+    while ok:
+        ctime = None
+        h = k.OpenProcess(0x1000, False, e.th32ProcessID)   # PROCESS_QUERY_LIMITED_INFORMATION
+        if h:
+            t = [ctypes.c_ulonglong() for _ in range(4)]
+            if k.GetProcessTimes(wintypes.HANDLE(h), *[ctypes.byref(x) for x in t]):
+                ctime = t[0].value
+            k.CloseHandle(wintypes.HANDLE(h))
+        out[e.th32ProcessID] = (e.th32ParentProcessID, ctime,
+                                e.szExeFile.decode("mbcs", "replace").lower())
+        ok = k.Process32Next(snap, ctypes.byref(e))
+    k.CloseHandle(wintypes.HANDLE(snap))
+    return out
+
+
+def _win_alive(pid):
+    import ctypes
+    from ctypes import wintypes
+    k = ctypes.windll.kernel32
+    k.OpenProcess.restype = wintypes.HANDLE
+    h = k.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
+    if not h:
+        return False
+    code = ctypes.c_ulong()
+    k.GetExitCodeProcess(wintypes.HANDLE(h), ctypes.byref(code))
+    k.CloseHandle(wintypes.HANDLE(h))
+    return code.value == 259   # STILL_ACTIVE
+
+
+def kill_pid(pid):
+    """Kill one process of the test's; on Windows only one whose image is
+    the adapter's, LLDB's or a sample's."""
+    if WINDOWS:
+        info = _win_processes().get(pid)
+        if info is None or not (info[2] in KILLABLE or
+                                os.path.splitext(info[2])[0] in SAMPLES or info[2] == "area-built.exe"):
+            return
+    os.kill(pid, 9)
+
+
 def descendants(pid):
     """Every live process below pid (ps, no /proc on macOS)."""
+    if WINDOWS:
+        procs = _win_processes()
+        kids = {}
+        for p, (pp, ctime, _) in procs.items():
+            parent = procs.get(pp)
+            # Started after the parent: not an orphan whose parent's pid was reused.
+            if parent and parent[1] is not None and ctime is not None and ctime >= parent[1]:
+                kids.setdefault(pp, []).append(p)
+        found, todo = [], [pid]
+        while todo:
+            for c in kids.get(todo.pop(), []):
+                if c not in found and c != pid:
+                    found.append(c)
+                    todo.append(c)
+        return found
     try:
         out = subprocess.run(["ps", "-axo", "pid=,ppid="], capture_output=True, text=True).stdout
     except OSError:
@@ -81,6 +170,8 @@ def descendants(pid):
 
 
 def alive(pid):
+    if WINDOWS:
+        return _win_alive(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -100,7 +191,7 @@ class Session:
         self.log = []
         self.logfile = os.path.join(t.work, "%s.goose-dap.log" % t.name)
         env = dict(os.environ, GOOSE_DAP_LOG=self.logfile)
-        self.d = Dap([GOOSE_DAP], env=env, log=self.log)
+        self.d = Dap(ADAPTER, env=env, log=self.log)
         self.program = program
         self.launch_args = dict({"program": program, "cwd": t.work}, **launch)
         self.tree = []
@@ -211,7 +302,7 @@ class Session:
             time.sleep(0.1)
         for p in left:
             try:
-                os.kill(p, 9)
+                kill_pid(p)
             except OSError:
                 pass
         check(not left, "processes left running: %s" % left)
@@ -221,7 +312,7 @@ class Session:
         for p in [self.d.p.pid] + descendants(self.d.p.pid) + self.tree:
             try:
                 if alive(p):
-                    os.kill(p, 9)
+                    kill_pid(p)
             except OSError:
                 pass
 
@@ -505,7 +596,7 @@ def test_runtime_error_default(t):
 
 def test_build_first(t):
     src = SAMPLES["area"]
-    prog = os.path.join(t.work, "area-built")
+    prog = os.path.join(t.work, "area-built" + EXE)
     if os.path.exists(prog):
         os.unlink(prog)
     s = Session(t, prog, build=True, goose=compiler(), source=src)
@@ -522,7 +613,7 @@ def test_build_failure(t):
     bad = os.path.join(t.work, "bad.goose")
     with open(bad, "w") as f:
         f.write("fn main() {\n    let x = ;\n}\n")
-    s = Session(t, os.path.join(t.work, "bad"), build=True, goose=compiler(), source=bad)
+    s = Session(t, os.path.join(t.work, "bad" + EXE), build=True, goose=compiler(), source=bad)
     t.sessions.append(s)
     d = s.d
     d.request("initialize", {"clientID": "t", "adapterID": "goose", "pathFormat": "path"})
@@ -536,7 +627,7 @@ def test_set_variable(t):
     s = t.session("area").start(lines={src: [11]})
     s.stopped()
     ref = s.scopes()["Locals"]["variablesReference"]
-    s.locals()
+    s.variables(ref)   # Not s.locals(): lldb-dap 23 retires ref at the next scopes.
     r = s.d.request("setVariable", {"variablesReference": ref, "name": "total", "value": "41"})
     check(r["success"], "setVariable: %r" % r)
     eq(r["body"]["value"], "41", "new value")
@@ -574,7 +665,7 @@ def test_client_vanishes(t):
         left = [p for p in tree if alive(p)]
         time.sleep(0.1)
     for p in left:
-        os.kill(p, 9)
+        kill_pid(p)
     check(not left, "processes left running: %s" % left)
     eq(rc, 0, "goose-dap exit status")
 
@@ -591,7 +682,7 @@ def build_all(work):
     g = compiler()
     bins = {}
     for name, src in SAMPLES.items():
-        out = os.path.join(work, name)
+        out = os.path.join(work, name + EXE)
         p = subprocess.run([g, "build", "-g", "-o", out, src], capture_output=True, text=True,
                            cwd=os.path.dirname(src))
         if p.returncode != 0:
