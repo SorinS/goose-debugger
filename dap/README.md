@@ -106,30 +106,25 @@ instead. That setting applies to every lldb-dap session, so a per-launch
 in `.goose` files need `"debug.allowBreakpointsEverywhere": true` unless an
 extension contributes a `breakpoints` entry for the language.
 
-**With an extension of its own** (described here, not built). A minimal
-`goose-debug` extension would contain a `package.json` with:
-
-```jsonc
-"contributes": {
-  "breakpoints": [{ "language": "goose" }],
-  "debuggers": [{
-    "type": "goose",
-    "label": "Goose (LLDB)",
-    "languages": ["goose"],
-    "program": "./bin/goose-dap",      // or a DebugAdapterDescriptorFactory
-    "configurationAttributes": { "launch": { "properties": {
-      "program": { "type": "string" }, "source": { "type": "string" },
-      "build": { "type": "boolean" }, "goose": { "type": "string" },
-      "args": { "type": "array" }, "cwd": { "type": "string" } } } },
-    "initialConfigurations": [{ "type": "goose", "request": "launch", "name": "Debug",
-      "source": "${file}", "build": true }]
-  }]
-}
-```
-
-A `DebugAdapterExecutable` returned from a `DebugAdapterDescriptorFactory`
-would let the extension find goose-dap and the compiler from its settings.
-Nothing else is needed: everything Goose-specific is in goose-dap.
+**With the Goose extension** (goose.git `vscode/`, patch 0008): the
+extension's `goose` debug type debugs through goose-dap. Put this
+directory's `goose-dap` on PATH or set `goose.debugAdapterPath` to it, and
+set `goose.lldbDapPath` if goose-dap's own search for lldb-dap is not
+enough. `goose.compilerPath` must be a compiler with `-g`: the extension
+checks that `goose help build` lists `--debug-info`, and says so if not.
+Start a session with **Goose: Debug** (the editor's debug button or the
+Command Palette), or F5 on the "Goose: Debug" configuration. In a `goose`
+launch configuration, `program` is the Goose entry file, as for Run with
+JIT (default: `goose.entryFile` or the active file); the extension sends
+goose-dap `source` (that file), `program` (an executable beside it),
+`build: true`, `goose`, `cwd`, `args` (default `goose.runArguments`),
+`env`, and `--stdlib` in `buildArgs`; other keys (`stopOnEntry`,
+`showRuntimeFrames`, `initCommands`, ...) pass through. `noDebug: true`
+(Run Without Debugging) runs the program with the JIT instead. The
+extension contributes `breakpoints` for the goose language, so
+`debug.allowBreakpointsEverywhere` is not needed. With
+`goose.useRunKeybindings` on (the default), F5 in a Goose editor still runs
+with the JIT.
 
 ## In Neovim (nvim-dap)
 
@@ -438,64 +433,12 @@ before its first push cannot be expanded. `goose_dap_lldb.py` patches
   Neovim and IntelliJ clients were not run here; the configurations above
   follow their documentation.
 
-## Changes goose_lldb.py needs
+## Changes goose_lldb.py needed
 
-goose_lldb.py types a value by walking a frame local's Goose type along the
-value's expression path. A global's path starts at `gs_globals_main`,
-which is not a local, so a global resizable's children and `pool[1].v` are
-not typed. With this change, the Globals scope's children are the elements
-(`pool[0] = PNode { v: 1, next: null }`), and `pool[1].v` evaluates to `2`.
-It was checked with a patched copy, loaded through `gooseLldb`.
-
-```diff
-@@ def _type_by_path(valobj, frame, gmap):
-     l = gmap.local(frame.GetFunctionName(), toks[0])
-+    rest = toks[1:]
-+    if l is None and toks[0] == gmap.globals_main:
-+        # A global: a field of the main program's globals block.
-+        l = next((g for g in gmap.globals if g.get("c") == toks[1]), None)
-+        rest = toks[2:]
-     if l is None:
-         return None
-     t = parse_type(l["type"])
-     variant = None
--    for tok in toks[1:]:
-+    for tok in rest:
-```
-
-The second is for C paths through children the map named in Goose.
-lldb/README.md says that `s_g.items_g` "still works", but
-`GooseSynth.get_child_index` matches only exact names. So
-`frame variable gs_globals_main.pool_g[1].v_g` and `r_g->tag_g` fail. With
-this change both work (checked in the lldb CLI with the patched copy). goose-dap
-does not depend on it: after an index, and in variable-size values, it
-writes Goose field names.
-
-```diff
-@@ class GooseSynth:
-     def get_child_index(self, name):
-         ...
-             for i, c in enumerate(self.kids):
-                 if c.GetName() == name:
-                     return i
-+            # A C path (s_g.items_g) to a child the map named in Goose.
-+            g = goose_name(name)
-+            for i, c in enumerate(self.kids):
-+                if c.GetName() == g:
-+                    return i
-```
-
-The third is for lldb-vscode 16 and lldb-dap 18 (see
-[Adapter versions](#adapter-versions)): `has_children` must not depend on
-`update()` having run, and it is a "might": LLDB keeps the first answer.
-Until goose_lldb.py has it, `goose_dap_lldb.py` wraps `has_children` the
-same way when it loads (harmless once goose_lldb.py has the change).
-
-```diff
-@@ class GooseSynth:
-     def has_children(self):
--        return len(self.kids) > 0
-+        if not self.kids:
-+            self.update()
-+        return len(self.kids) > 0 or self.kind not in (None, "cenum")
-```
+Three changes this proxy needed in goose_lldb.py are made there: a global's
+fields are typed along the expression path from `gs_globals_main`
+(`pool[1].v`); a C child name (`s_g.items_g`, `r_g->tag_g`) finds the child
+the map named in Goose; and `GooseSynth.has_children` runs `update()`
+first, so lldb-dap 18 and lldb-vscode 16 offer to expand a value whose
+children are only known then. `goose_dap_lldb.py`'s `_patch_has_children`
+stays as a fallback for an older goose_lldb.py given with `gooseLldb`.
