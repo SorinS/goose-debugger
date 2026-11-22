@@ -59,6 +59,8 @@ patches for its author, against the goose.git commit each one names.
   with MSVC embeds the program's natvis in its PDB itself (`/NATVIS`).
 - `lldb/`: `goose_lldb.py`, LLDB summaries and synthetic children for Goose
   values, and its tests.
+- Neovim: [goose-nvim-dap](https://github.com/SorinS/goose-nvim-dap), an
+  nvim-dap plugin that runs `dap/goose-dap` for the `goose` filetype.
 - `tests/`: checks of the patched compiler: `line_directives.sh` through
   LLDB in batch mode, `backtrace.sh` for `goose run -g`.
 - `docs/`: the plan.

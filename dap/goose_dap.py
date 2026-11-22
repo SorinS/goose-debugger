@@ -1660,8 +1660,9 @@ def main(argv=None):
     try:
         return p.run()
     except KeyboardInterrupt:
+        # How nvim-dap ends every session (after closing stdin): a normal end.
         p.shutdown()
-        return 1
+        return 0
 
 
 if __name__ == "__main__":
