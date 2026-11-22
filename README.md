@@ -40,9 +40,10 @@ patches for its author, against the goose.git commit each one names.
   - `0009`: under `-g` the compiler also writes `<stem>.natvis` beside the
     map, and an MSVC-style link embeds it in the PDB (`/NATVIS`), so Visual
     Studio and cdb show Goose values with nothing to load.
-- `patches/upstream/`: the same final change as three patches for the
+- `patches/upstream/`: the same final change as five patches for the
   Goose author, each building and passing on its own: `-g` itself, the
-  debug map, and `goose run -g`'s backtraces.
+  debug map, `goose run -g`'s backtraces, the natvis embedded in the PDB,
+  and the VS Code extension's debugging.
 - `dap/`: `goose-dap`, a Debug Adapter Protocol proxy in front of LLDB's
   `lldb-dap` that makes an editor's debugger Goose-level: frame names,
   only the Goose locals in scope, Goose watch expressions and function

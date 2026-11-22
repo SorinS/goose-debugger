@@ -1,0 +1,931 @@
+From c89e3c57c7c1ebc76e2a3dd5db7e155c4aade418 Mon Sep 17 00:00:00 2001
+From: SorinS <ssuciu@gmail.com>
+Date: Sat, 21 Nov 2026 23:30:17 +0000
+Subject: [PATCH 5/5] vscode: debug Goose programs through goose-dap
+
+The `goose` debug type ran the program with the JIT and nothing else:
+every launch was made noDebug and handed to the Run with JIT task. A
+launch is now that only when it says noDebug (the Run with JIT
+configuration, Run Without Debugging). Any other `goose` launch debugs
+the program: the extension resolves the entry file as Run does
+(the configuration's `program`, goose.entryFile, or the active file)
+and gives goose-dap -- the DAP proxy in front of lldb-dap from
+goose-debugger -- a configuration that builds it with `goose build -g`
+into an executable beside it and starts it there. A
+DebugAdapterDescriptorFactory runs goose-dap over stdio.
+
+- Settings: goose.debugAdapterPath (empty: goose-dap on PATH) and
+  goose.lldbDapPath (passed on as lldbDap). Both are withheld in an
+  untrusted workspace, where nothing is debugged.
+- Before a session, `goose help build` must list --debug-info and
+  goose-dap must be found; otherwise an error says which is missing
+  and what to install or set. Run with JIT needs neither.
+- The launch passes source, program, build, goose, cwd, args (default
+  goose.runArguments), env, and goose.stdlibPath as --stdlib in
+  buildArgs; anything else the configuration sets (stopOnEntry,
+  showRuntimeFrames, initCommands, ...) goes on to goose-dap as written.
+- `breakpoints` for the goose language, so breakpoints can be set in
+  .goose files.
+- Goose: Debug, a command with a button in the editor title beside Run,
+  and a configuration in the Run and Debug picker, launch.json's
+  initial configurations and its snippets.
+- goose.useRunKeybindings keeps F5 on Run with JIT in a Goose editor;
+  with it off, F5 debugs and Ctrl+F5 runs with the JIT.
+
+Test: test/debug.test.js activates the extension against a stub of the
+VS Code API: a noDebug launch runs the JIT task as before; any other
+resolves to goose-dap's configuration and the factory to goose-dap;
+goose-dap or -g missing and an untrusted workspace each give their one
+message. The launch configuration it produced, given to goose-dap,
+built tests/area.goose with -g, stopped on a breakpoint at line 9 with
+main at area.goose:9 on top. The extension-host suite's launch without
+noDebug now says noDebug.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vscode/README.md              |  88 +++++++++++-
+ vscode/package.json           |  44 ++++--
+ vscode/src/config.js          |   2 +-
+ vscode/src/debug.js           | 118 ++++++++++++++++
+ vscode/src/extension.js       |  73 ++++++++--
+ vscode/test/debug.test.js     | 256 ++++++++++++++++++++++++++++++++++
+ vscode/test/extension-host.js |   2 +-
+ vscode/test/vscode-stub.js    | 103 ++++++++++++++
+ 8 files changed, 654 insertions(+), 32 deletions(-)
+ create mode 100644 vscode/src/debug.js
+ create mode 100644 vscode/test/debug.test.js
+ create mode 100644 vscode/test/vscode-stub.js
+
+diff --git a/vscode/README.md b/vscode/README.md
+index 1172b63a..92ec9b1c 100644
+--- a/vscode/README.md
++++ b/vscode/README.md
+@@ -64,6 +64,12 @@ has the configuration for Neovim, Helix and Emacs.
+ - **Ctrl+Shift+B**, **F5**, and **Ctrl+F5** run with JIT while editing Goose
+   (**Cmd+Shift+B** for build on macOS). **Goose: Run with JIT** is also available
+   in VS Code's Run configuration picker.
++- Debugging through [goose-dap](#debugging): breakpoints in `.goose` files,
++  stepping by Goose line, a call stack of Goose functions, the Goose locals in
++  scope with Goose types and values, watches in Goose syntax, and a stop on
++  Goose runtime errors. **Goose: Debug** (the editor's debug button, or
++  **Goose: Debug** in the Run and Debug picker) builds the program with
++  `goose build -g` and starts it under LLDB.
+ - Without the language server, a lexical scan provides top-level
+   declarations in Outline, breadcrumbs and Go to Symbol (**Ctrl+Shift+O**).
+   Imports are also clickable, and are resolved root-relative,
+@@ -75,8 +81,8 @@ has the configuration for Neovim, Helix and Emacs.
+ The language server also completes names in scope and members after a `.`,
+ finds references and calls, renames, shows inlay hints, folds, and formats:
+ **Format Document** (Shift+Alt+F) lays the file out as `goose format` does,
+-and `"editor.formatOnSave": true` does it on every save. It does not provide
+-debugging (`docs/design/language_server.md` has the plan). A
++and `"editor.formatOnSave": true` does it on every save. Debugging is not
++the server's: it goes through goose-dap (see [Debugging](#debugging)). A
+ function body that no instantiation reaches has no types: hover says so, and
+ member completion there offers every field and function.
+ 
+@@ -240,9 +246,76 @@ configuration can choose a specific program:
+ }
+ ```
+ 
+-Run configurations execute programs without breakpoints or stepping. Stop
+-an executing program with **Tasks: Terminate Task** or its terminal's trash
+-button. Program arguments still come from `goose.runArguments`.
++A configuration with `"noDebug": true` runs the program with the JIT,
++without breakpoints or stepping. Stop an executing program with **Tasks:
++Terminate Task** or its terminal's trash button. Program arguments still come
++from `goose.runArguments`. A `goose` configuration without `noDebug` debugs
++the program instead (next section); **Run Without Debugging** (Ctrl+F5 when
++`goose.useRunKeybindings` is off) runs any `goose` configuration with the JIT.
++
++## Debugging
++
++The extension debugs a Goose program through **goose-dap**, a Debug Adapter
++Protocol proxy in front of LLDB's `lldb-dap` that shows the program at the
++Goose level (`dap/goose-dap` in goose-debugger). It needs:
++
++- a compiler with `goose build -g` (`--debug-info`; `goose help build` lists
++  it). The extension checks before each debug session and says so if the
++  compiler in `goose.compilerPath` lacks it. **Run with JIT** works without it.
++- `goose-dap` on PATH, or `goose.debugAdapterPath` set to it, and Python 3,
++  which runs it.
++- an `lldb-dap`: on macOS the Command Line Tools have one; elsewhere install
++  LLDB, or set `goose.lldbDapPath` to the one to use.
++
++```json
++{
++  "goose.compilerPath": "${workspaceFolder}/build/Release/goose",
++  "goose.debugAdapterPath": "/path/to/goose-debugger/dap/goose-dap",
++  "goose.lldbDapPath": ""
++}
++```
++
++Start a session with **Goose: Debug** (the debug button in the editor title,
++or the Command Palette), or with the **Goose: Debug** configuration in the
++Run and Debug view and **F5** there. While `goose.useRunKeybindings` is on
++(the default), **F5** in a Goose editor still runs with the JIT, as before;
++turn it off to have F5 start debugging and Ctrl+F5 run with the JIT, as in
++other languages. A session builds the entry file (`goose.entryFile`, or the
++active Goose file) with `goose build -g` into an executable beside it, as
++**Build Executable** does, and starts it under the debugger. The build's
++output, and the compiler's error if it fails, are in the Debug Console.
++Breakpoints can be set in any `.goose` file; function breakpoints take Goose
++names (`area`, `geo::area`). The **Goose runtime errors** exception
++breakpoint, on by default, stops at a failed assert, bounds or overflow
++check, division by zero or `abort`, with the Goose frame that failed on top.
++
++A `launch.json` configuration can set what the session gets:
++
++```json
++{
++  "version": "0.2.0",
++  "configurations": [{
++    "type": "goose",
++    "request": "launch",
++    "name": "Goose: Debug",
++    "program": "${workspaceFolder}/main.goose",
++    "args": ["input.txt"],
++    "cwd": "${workspaceFolder}",
++    "env": { "LOG_LEVEL": "debug" },
++    "stopOnEntry": false
++  }]
++}
++```
++
++`program` is the Goose entry file, as for Run with JIT (the executable is
++built beside it). `args` defaults to `goose.runArguments` and `cwd` to the
++workspace folder. `buildArgs` adds `goose build` arguments, `lldbDap`
++overrides `goose.lldbDapPath`, `showRuntimeFrames` keeps the runtime's
++`gs_*` frames in the call stack, and `initCommands` runs LLDB commands after
++goose-dap's own. Anything else goes through goose-dap to `lldb-dap`. A JIT
++run cannot be debugged: debugging always uses a built executable. Debugging
++needs a trusted workspace, and the two paths above are not read from an
++untrusted one.
+ 
+ ## Verification
+ 
+@@ -251,7 +324,10 @@ scanning, and parsing of JSON and text diagnostics, including Windows paths and
+ UTF-8 byte columns. It also checks fallback from `--diagnostics json` to text,
+ task arguments, cancellation, and handling of stale results. Language-server
+ tests cover probing and setup, then use the real protocol to check diagnostics
+-after text changes and a hover response.
++after text changes and a hover response. Debugging tests check the debug
++configurations, the launch configuration goose-dap gets, the search for
++goose-dap, the probe for `-g` and the debug adapter factory, against a stub
++of the VS Code API.
+ 
+ Compiler integration tests run when a Goose build exists in the parent
+ repository. Set `GOOSE_TEST_COMPILER` to test another executable. A missing
+diff --git a/vscode/package.json b/vscode/package.json
+index 9ee122b1..53fa4aa8 100644
+--- a/vscode/package.json
++++ b/vscode/package.json
+@@ -1,21 +1,21 @@
+ {
+   "name": "goose-language",
+   "displayName": "Goose Language",
+-  "description": "Syntax highlighting, the Goose language server (diagnostics as you type, hover, go to definition, symbols, semantic highlighting, signature help) and tasks for Goose.",
++  "description": "Syntax highlighting, the Goose language server (diagnostics as you type, hover, go to definition, symbols, semantic highlighting, signature help), tasks, and debugging through goose-dap for Goose.",
+   "version": "0.4.0",
+   "publisher": "aardappel",
+   "license": "Apache-2.0",
+   "repository": { "type": "git", "url": "https://github.com/aardappel/goose.git", "directory": "vscode" },
+   "engines": { "vscode": "^1.85.0" },
+-  "categories": ["Programming Languages", "Snippets"],
++  "categories": ["Programming Languages", "Snippets", "Debuggers"],
+   "keywords": ["goose"],
+   "main": "./dist/extension.js",
+   "activationEvents": ["onLanguage:goose", "onTaskType:goose", "onDebugResolve:goose", "onDebugInitialConfigurations", "onDebugDynamicConfigurations:goose"],
+   "capabilities": {
+     "untrustedWorkspaces": {
+       "supported": "limited",
+-      "description": "Syntax highlighting, snippets and the outline work in Restricted Mode. Running the compiler requires a trusted workspace.",
+-      "restrictedConfigurations": ["goose.compilerPath", "goose.entryFile", "goose.stdlibPath", "goose.runArguments"]
++      "description": "Syntax highlighting, snippets and the outline work in Restricted Mode. Running the compiler or the debugger requires a trusted workspace.",
++      "restrictedConfigurations": ["goose.compilerPath", "goose.entryFile", "goose.stdlibPath", "goose.runArguments", "goose.debugAdapterPath", "goose.lldbDapPath"]
+     },
+     "virtualWorkspaces": { "supported": false, "description": "Goose uses a compiler and source files on the extension host's filesystem." }
+   },
+@@ -44,36 +44,58 @@
+     "commands": [
+       { "command": "goose.check", "title": "Check Program", "category": "Goose", "enablement": "editorLangId == goose && isWorkspaceTrusted" },
+       { "command": "goose.run", "title": "Run with JIT", "category": "Goose", "icon": "$(play)", "enablement": "editorLangId == goose && isWorkspaceTrusted" },
++      { "command": "goose.debug", "title": "Debug", "category": "Goose", "icon": "$(debug-alt)", "enablement": "editorLangId == goose && isWorkspaceTrusted" },
+       { "command": "goose.build", "title": "Build Executable", "category": "Goose", "enablement": "editorLangId == goose && isWorkspaceTrusted" },
+       { "command": "goose.generateC", "title": "Generate C", "category": "Goose", "enablement": "editorLangId == goose && isWorkspaceTrusted" },
+       { "command": "goose.showOutput", "title": "Show Compiler Output", "category": "Goose" },
+       { "command": "goose.restartServer", "title": "Restart Language Server", "category": "Goose", "enablement": "isWorkspaceTrusted" }
+     ],
+     "menus": {
+-      "editor/title": [{ "command": "goose.run", "when": "editorLangId == goose && isWorkspaceTrusted", "group": "navigation" }]
++      "editor/title": [
++        { "command": "goose.run", "when": "editorLangId == goose && isWorkspaceTrusted", "group": "navigation" },
++        { "command": "goose.debug", "when": "editorLangId == goose && isWorkspaceTrusted", "group": "navigation" }
++      ]
+     },
+     "keybindings": [
+       { "command": "goose.run", "key": "ctrl+shift+b", "mac": "cmd+shift+b", "when": "editorLangId == goose && editorTextFocus && isWorkspaceTrusted && config.goose.useRunKeybindings" },
+       { "command": "goose.run", "key": "ctrl+f5", "when": "editorLangId == goose && editorTextFocus && isWorkspaceTrusted && config.goose.useRunKeybindings && debugState == inactive" },
+       { "command": "goose.run", "key": "f5", "when": "editorLangId == goose && editorTextFocus && isWorkspaceTrusted && config.goose.useRunKeybindings && debugState == inactive" }
+     ],
++    "breakpoints": [{ "language": "goose" }],
+     "debuggers": [{
+       "type": "goose",
+-      "label": "Goose: Run with JIT",
++      "label": "Goose",
+       "languages": ["goose"],
+       "configurationAttributes": {
+         "launch": {
+           "required": [],
+           "properties": {
+-            "program": { "type": "string", "description": "Entry file. Defaults to goose.entryFile or the active Goose file.", "default": "${file}" }
++            "program": { "type": "string", "description": "Goose entry file. Defaults to goose.entryFile or the active Goose file. A debug session builds the executable beside it with goose build -g.", "default": "${file}" },
++            "noDebug": { "type": "boolean", "description": "true: run with the JIT in a task terminal. Otherwise the program is built with goose build -g and debugged through goose-dap.", "default": true },
++            "args": { "type": "array", "items": { "type": "string" }, "description": "Debug: the program's arguments. Defaults to goose.runArguments.", "default": [] },
++            "cwd": { "type": "string", "description": "Debug: the program's working directory. Defaults to the workspace folder.", "default": "${workspaceFolder}" },
++            "env": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Debug: environment variables added to the program's.", "default": {} },
++            "buildArgs": { "type": "array", "items": { "type": "string" }, "description": "Debug: more goose build arguments, after -g (goose.stdlibPath is passed as --stdlib).", "default": [] },
++            "stopOnEntry": { "type": "boolean", "description": "Debug: stop at the program's first instruction.", "default": false },
++            "stopOnRuntimeError": { "type": "boolean", "description": "Debug: stop on a Goose runtime error when the editor sets no exception breakpoints (the Goose runtime errors breakpoint is on by default).", "default": true },
++            "showRuntimeFrames": { "type": "boolean", "description": "Debug: keep the runtime's gs_* frames in the call stack.", "default": false },
++            "lldbDap": { "type": "string", "description": "Debug: the lldb-dap to run. Defaults to goose.lldbDapPath, then goose-dap's own search." },
++            "initCommands": { "type": "array", "items": { "type": "string" }, "description": "Debug: LLDB commands run after goose-dap's own when the debugger starts.", "default": [] }
+           }
+         }
+       },
+-      "initialConfigurations": [{ "type": "goose", "request": "launch", "name": "Goose: Run with JIT", "noDebug": true }],
++      "initialConfigurations": [
++        { "type": "goose", "request": "launch", "name": "Goose: Run with JIT", "noDebug": true },
++        { "type": "goose", "request": "launch", "name": "Goose: Debug" }
++      ],
+       "configurationSnippets": [{
+         "label": "Goose: Run with JIT",
+         "description": "Run Goose in a task terminal using the compiler's JIT (no debugger).",
+         "body": { "type": "goose", "request": "launch", "name": "Goose: Run with JIT", "noDebug": true }
++      }, {
++        "label": "Goose: Debug",
++        "description": "Build the Goose program with goose build -g and debug it through goose-dap and LLDB.",
++        "body": { "type": "goose", "request": "launch", "name": "Goose: Debug" }
+       }]
+     }],
+     "configuration": {
+@@ -84,9 +106,11 @@
+         "goose.stdlibPath": { "type": "string", "default": "", "scope": "resource", "description": "Standard-library directory passed as --stdlib. Empty uses the compiler's default lookup (including GOOSE_STDLIB). Supports ${workspaceFolder}." },
+         "goose.useLanguageServer": { "type": "boolean", "default": true, "scope": "window", "description": "Start the compiler's language server (goose lsp) for diagnostics as you type, hover, go to definition, symbols, semantic highlighting and signature help. A compiler without it, or this off, checks saved files instead (goose.checkOnSave)." },
+         "goose.checkOnSave": { "type": "boolean", "default": true, "scope": "resource", "description": "Without the language server: check saved Goose files on open and save. Checks wait until open Goose files in the same workspace folder are saved." },
+-        "goose.useRunKeybindings": { "type": "boolean", "default": true, "description": "Run with JIT on Ctrl+Shift+B (Cmd+Shift+B on macOS), F5, and Ctrl+F5 while editing Goose. Disable to use VS Code's usual task/debug keybindings." },
++        "goose.useRunKeybindings": { "type": "boolean", "default": true, "description": "Run with JIT on Ctrl+Shift+B (Cmd+Shift+B on macOS), F5, and Ctrl+F5 while editing Goose. Disable to use VS Code's usual task/debug keybindings, where F5 debugs (Goose: Debug) and Ctrl+F5 runs with the JIT." },
+         "goose.checkTimeout": { "type": "number", "default": 15000, "minimum": 1000, "maximum": 300000, "scope": "resource", "description": "Maximum time in milliseconds for a background compiler check." },
+-        "goose.runArguments": { "type": "array", "items": { "type": "string" }, "default": [], "scope": "resource", "description": "Program arguments passed after -- by Run Program. Each item is one argument." }
++        "goose.debugAdapterPath": { "type": "string", "default": "", "scope": "resource", "description": "The Goose debug adapter, goose-dap (dap/goose-dap in goose-debugger). Empty looks for goose-dap on PATH. Relative paths use the workspace folder. Supports ${workspaceFolder}." },
++        "goose.lldbDapPath": { "type": "string", "default": "", "scope": "resource", "description": "The lldb-dap goose-dap runs: a path, or a command on PATH. Empty lets goose-dap find one (xcrun, the Command Line Tools, then lldb-dap on PATH). Relative paths use the workspace folder. Supports ${workspaceFolder}." },
++        "goose.runArguments": { "type": "array", "items": { "type": "string" }, "default": [], "scope": "resource", "description": "Program arguments passed after -- by Run with JIT, and to the program under the debugger. Each item is one argument." }
+       }
+     },
+     "taskDefinitions": [{
+diff --git a/vscode/src/config.js b/vscode/src/config.js
+index a9aaf9af..27605f95 100644
+--- a/vscode/src/config.js
++++ b/vscode/src/config.js
+@@ -78,4 +78,4 @@ function stdlibDirectories(config, env = process.env) {
+     return [...new Set(dirs)];
+ }
+ 
+-module.exports = { absolute, compilerPath, settings, argumentsFor, stdlibDirectories };
++module.exports = { expand, absolute, compilerPath, settings, argumentsFor, stdlibDirectories };
+diff --git a/vscode/src/debug.js b/vscode/src/debug.js
+new file mode 100644
+index 00000000..bad77ed0
+--- /dev/null
++++ b/vscode/src/debug.js
+@@ -0,0 +1,118 @@
++'use strict';
++
++// Debugging a Goose program: the configuration a launch hands the debug
++// adapter, goose-dap (goose-debugger.git's dap/goose-dap), a Debug Adapter
++// Protocol proxy in front of LLDB's lldb-dap that builds the program with
++// `goose build -g` and shows it at the Goose level. Nothing here needs the
++// editor, so it is tested with plain Node.
++
++const fs = require('node:fs');
++const path = require('node:path');
++const { execFile } = require('node:child_process');
++const { expand } = require('./config');
++
++const ADAPTER = 'goose-dap';
++
++// Where goose-dap is: goose.debugAdapterPath when set (relative to the
++// folder, with ${workspaceFolder}), else the first goose-dap on PATH.
++// Undefined when there is none.
++function findAdapter(configured, folder, env = process.env, platform = process.platform) {
++    const isFile = file => { try { return fs.statSync(file).isFile(); } catch { return false; } };
++    if (configured) {
++        const file = path.resolve(folder, expand(configured, folder, ''));
++        return isFile(file) ? file : undefined;
++    }
++    const names = platform === 'win32' ? [`${ADAPTER}.exe`, `${ADAPTER}.cmd`, `${ADAPTER}.bat`, ADAPTER] : [ADAPTER];
++    for (const dir of (env.PATH || env.Path || '').split(path.delimiter)) {
++        if (!dir) continue;
++        for (const name of names) {
++            const file = path.resolve(dir, name);
++            if (isFile(file)) return file;
++        }
++    }
++    return undefined;
++}
++
++// Whether a compiler builds for a debugger: `goose help build` lists -g,
++// --debug-info where the compiler has it.
++function supportsDebugInfo(helpText) {
++    return /--debug-info\b/.test(String(helpText || ''));
++}
++
++function probeDebugInfo(compiler, cwd, spawn = execFile) {
++    return new Promise(resolve => {
++        spawn(compiler, ['help', 'build'], { cwd, timeout: 10000, windowsHide: true, encoding: 'utf8', shell: false },
++            (error, stdout, stderr) => {
++                if (error && error.code === 'ENOENT') resolve({ found: false, debugInfo: false });
++                else resolve({ found: true, debugInfo: supportsDebugInfo(`${stdout || ''}${stderr || ''}`) });
++            });
++    });
++}
++
++// The executable a debug build writes: beside the source, as `goose build`
++// and the Build Executable task put it.
++function executableFor(source, platform = process.platform) {
++    const stem = source.replace(/\.goose$/, '');
++    return platform === 'win32' ? `${stem}.exe` : stem;
++}
++
++// The launch configuration goose-dap gets for a Goose launch configuration
++// `config` (whose `program` is the Goose entry file, as for Run with JIT)
++// and the resolved settings: the entry file `source`, the compiler, the
++// working directory, the standard library, the program arguments and
++// lldbDapPath. goose-dap builds `program` from `source` with `goose build -g`
++// and debugs it.
++function adapterConfiguration(config, resolved, platform = process.platform) {
++    const { source, compiler, cwd, stdlib, runArguments, lldbDap } = resolved;
++    // What else the configuration sets (stopOnEntry, stopOnRuntimeError,
++    // showRuntimeFrames, initCommands, ...) goes to goose-dap as written, and
++    // through it to lldb-dap.
++    const out = { ...config };
++    const buildArgs = [...(stdlib ? ['--stdlib', stdlib] : []), ...(Array.isArray(config.buildArgs) ? config.buildArgs : [])];
++    Object.assign(out, {
++        type: 'goose',
++        request: 'launch',
++        name: config.name || 'Goose: Debug',
++        source,
++        program: executableFor(source, platform),
++        build: true,
++        goose: compiler,
++        cwd: config.cwd ? path.resolve(cwd, config.cwd) : cwd,
++        args: Array.isArray(config.args) ? config.args : runArguments || [],
++        env: config.env && typeof config.env === 'object' ? config.env : {}
++    });
++    if (buildArgs.length) out.buildArgs = buildArgs;
++    const lldb = config.lldbDap || lldbDap;
++    if (lldb) out.lldbDap = lldb;
++    return out;
++}
++
++const messages = {
++    noAdapter: configured => configured
++        ? `goose-dap was not found at goose.debugAdapterPath (${configured}). Set it to the dap/goose-dap script of goose-debugger, which needs Python 3 and LLDB's lldb-dap.`
++        : 'Debugging Goose needs goose-dap, the Goose debug adapter (dap/goose-dap in goose-debugger, which needs Python 3 and LLDB\'s lldb-dap). Put goose-dap on PATH or set goose.debugAdapterPath to it.',
++    noCompiler: compiler => `Goose compiler not found: ${compiler}. Set goose.compilerPath to the executable.`,
++    noDebugInfo: compiler => `The Goose compiler ${compiler} cannot build for a debugger: \`goose build\` has no -g (--debug-info). Install a compiler with -g (goose-debugger's patches 0001-0007) or point goose.compilerPath to one. Run with JIT works without it.`
++};
++
++// The debug configurations offered: Run with JIT, as before, and Debug.
++const launchConfigurations = () => [
++    { type: 'goose', request: 'launch', name: 'Goose: Run with JIT', noDebug: true },
++    { type: 'goose', request: 'launch', name: 'Goose: Debug' }
++];
++
++// The debug adapter of a session: goose-dap, run over stdio.
++function descriptorFactory(vscode, adapterPath) {
++    return {
++        createDebugAdapterDescriptor(session) {
++            const file = adapterPath(session);
++            if (!file) throw new Error(messages.noAdapter(''));
++            return new vscode.DebugAdapterExecutable(file, []);
++        }
++    };
++}
++
++module.exports = {
++    findAdapter, supportsDebugInfo, probeDebugInfo, executableFor, adapterConfiguration,
++    descriptorFactory, launchConfigurations, messages
++};
+diff --git a/vscode/src/extension.js b/vscode/src/extension.js
+index a0c71bc3..d74d7610 100644
+--- a/vscode/src/extension.js
++++ b/vscode/src/extension.js
+@@ -2,10 +2,11 @@
+ 
+ const vscode = require('vscode');
+ const path = require('node:path');
+-const { settings, argumentsFor, stdlibDirectories, absolute } = require('./config');
++const { settings, argumentsFor, stdlibDirectories, absolute, compilerPath } = require('./config');
+ const { parseDiagnostics, parseJsonDiagnostics, failureMessage, runCompiler, CheckQueue } = require('./diagnostics');
+ const { declarations, imports, importCandidates } = require('./language');
+ const { probe, serverSetup, createClient } = require('./client');
++const { findAdapter, probeDebugInfo, adapterConfiguration, descriptorFactory, launchConfigurations, messages } = require('./debug');
+ 
+ const isGoose = doc => doc.languageId === 'goose' && doc.uri.scheme === 'file';
+ 
+@@ -400,18 +401,28 @@ async function activate(context) {
+         else runStatus.hide();
+     }
+ 
+-    const jitConfigurations = () => [{ type: 'goose', request: 'launch', name: 'Goose: Run with JIT', noDebug: true }];
+-    // Participate in the native Run configuration picker without claiming a
+-    // debugger. Launch the same terminal task, then stop debug resolution.
++    // A `goose` launch configuration runs the program with the JIT in a task
++    // terminal when it says noDebug (Run with JIT, Run Without Debugging),
++    // and debugs it otherwise: goose-dap builds it with `goose build -g` and
++    // debugs it through lldb-dap. Its `program` is the Goose entry file.
++    const adapterPath = folder => {
++        const base = folder?.uri.fsPath || process.cwd();
++        return findAdapter(vscode.workspace.getConfiguration('goose', folder?.uri).get('debugAdapterPath', ''), base);
++    };
+     const launchProvider = {
+-        provideDebugConfigurations: jitConfigurations,
++        provideDebugConfigurations: launchConfigurations,
+         resolveDebugConfiguration(_folder, config) {
+-            return { ...jitConfigurations()[0], ...config, noDebug: true };
++            const name = config.noDebug ? 'Goose: Run with JIT' : 'Goose: Debug';
++            return { type: 'goose', request: 'launch', name, ...config };
+         },
+         async resolveDebugConfigurationWithSubstitutedVariables(folder, config) {
+-            if (!vscode.workspace.isTrusted) return undefined;
++            const verb = config.noDebug ? 'run with JIT' : 'debug';
++            if (!vscode.workspace.isTrusted) {
++                if (!config.noDebug) void vscode.window.showWarningMessage('Trust this workspace to debug Goose programs.');
++                return undefined;
++            }
+             if (config.request !== 'launch') {
+-                void vscode.window.showErrorMessage('Goose supports JIT launch only; attaching a debugger is not available.');
++                void vscode.window.showErrorMessage('Goose launches its programs; attaching a debugger is not available.');
+                 return undefined;
+             }
+             const active = vscode.window.activeTextEditor?.document;
+@@ -429,16 +440,38 @@ async function activate(context) {
+                 uri = (await savedDocument())?.uri;
+             }
+             if (!uri) {
+-                void vscode.window.showErrorMessage('Open a Goose file or set goose.entryFile to run with JIT.');
++                void vscode.window.showErrorMessage(`Open a Goose file or set goose.entryFile to ${verb}.`);
+                 return undefined;
+             }
+             const definition = { type: 'goose', action: 'run', file: uri.fsPath };
+-            const cwd = settings(vscode, uri, definition, folder).cwd;
++            const resolved = settings(vscode, uri, definition, folder);
+             for (const doc of vscode.workspace.textDocuments) {
+-                if (isGoose(doc) && doc.isDirty && cwdOf(doc) === cwd && !await doc.save()) return undefined;
++                if (isGoose(doc) && doc.isDirty && cwdOf(doc) === resolved.cwd && !await doc.save()) return undefined;
+             }
+-            await vscode.tasks.executeTask(makeTask(definition, uri, folder));
+-            return undefined;
++            if (config.noDebug) {
++                await vscode.tasks.executeTask(makeTask(definition, uri, folder));
++                return undefined;
++            }
++            // Debugging needs goose-dap and a compiler that builds with -g.
++            const adapterFolder = folder || resolved.workspaceFolder;
++            const fail = message => {
++                output.appendLine(message);
++                void vscode.window.showErrorMessage(message);
++                return undefined;
++            };
++            if (!adapterPath(adapterFolder)) {
++                return fail(messages.noAdapter(vscode.workspace.getConfiguration('goose', adapterFolder?.uri).get('debugAdapterPath', '')));
++            }
++            const compiler = await probeDebugInfo(resolved.compiler, resolved.cwd);
++            if (!compiler.debugInfo) {
++                return fail(compiler.found ? messages.noDebugInfo(resolved.compiler) : messages.noCompiler(resolved.compiler));
++            }
++            const lldbDap = vscode.workspace.getConfiguration('goose', adapterFolder?.uri || uri).get('lldbDapPath', '');
++            return adapterConfiguration(config, {
++                source: resolved.file, compiler: resolved.compiler, cwd: resolved.cwd, stdlib: resolved.stdlib,
++                runArguments: resolved.runArguments,
++                lldbDap: lldbDap ? compilerPath(lldbDap, resolved.cwd) : ''
++            });
+         }
+     };
+ 
+@@ -449,7 +482,9 @@ async function activate(context) {
+         vscode.languages.onDidChangeDiagnostics(() => { if (server.status !== 'off') updateCheckStatus(); }),
+         vscode.workspace.onDidGrantWorkspaceTrust(() => { updateRunStatus(); updateCheckStatus(); void decide(); }),
+         vscode.debug.registerDebugConfigurationProvider('goose', launchProvider),
+-        vscode.debug.registerDebugConfigurationProvider('goose', { provideDebugConfigurations: jitConfigurations }, vscode.DebugConfigurationProviderTriggerKind.Dynamic),
++        vscode.debug.registerDebugConfigurationProvider('goose', { provideDebugConfigurations: launchConfigurations }, vscode.DebugConfigurationProviderTriggerKind.Dynamic),
++        vscode.debug.registerDebugAdapterDescriptorFactory('goose', descriptorFactory(vscode, session => adapterPath(session.workspaceFolder ||
++            (session.configuration.source ? vscode.workspace.getWorkspaceFolder(vscode.Uri.file(session.configuration.source)) : undefined)))),
+         vscode.commands.registerCommand('goose.showOutput', () => output.show()),
+         vscode.commands.registerCommand('goose.restartServer', () => decide(true)),
+         vscode.commands.registerCommand('goose.check', async () => {
+@@ -476,6 +511,16 @@ async function activate(context) {
+             if (uri) definition.file = doc.uri.fsPath;
+             await vscode.tasks.executeTask(makeTask(definition, doc.uri));
+         }),
++        // Debug: the file the code lens names, else the entry file or the
++        // active file, as Run picks them.
++        vscode.commands.registerCommand('goose.debug', async target => {
++            const uri = typeof target === 'string' ? vscode.Uri.parse(target) : undefined;
++            const doc = await savedDocument(uri);
++            if (!doc) return;
++            const config = { type: 'goose', request: 'launch', name: 'Goose: Debug' };
++            if (uri) config.program = doc.uri.fsPath;
++            await vscode.debug.startDebugging(vscode.workspace.getWorkspaceFolder(doc.uri), config);
++        }),
+         ...['build', 'generateC'].map(action => vscode.commands.registerCommand(`goose.${action}`, async () => {
+             const doc = await savedDocument();
+             if (doc) await vscode.tasks.executeTask(makeTask({ type: 'goose', action }, doc.uri));
+diff --git a/vscode/test/debug.test.js b/vscode/test/debug.test.js
+new file mode 100644
+index 00000000..929fa2d3
+--- /dev/null
++++ b/vscode/test/debug.test.js
+@@ -0,0 +1,256 @@
++'use strict';
++
++// Debugging: the configurations offered, how a `goose` launch configuration
++// resolves (Run with JIT, or a session of goose-dap), the search for
++// goose-dap, the probe of the compiler for -g, and the debug adapter factory.
++// The extension itself is activated against a stub of the VS Code API.
++
++const assert = require('node:assert/strict');
++const test = require('node:test');
++const fs = require('node:fs');
++const os = require('node:os');
++const path = require('node:path');
++const {
++    findAdapter, supportsDebugInfo, probeDebugInfo, executableFor, adapterConfiguration,
++    descriptorFactory, launchConfigurations, messages
++} = require('../src/debug');
++const { activated } = require('./vscode-stub');
++
++const windows = process.platform === 'win32';
++
++function scratch() {
++    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'goose vscode debug '));
++    return { dir, remove: () => fs.rmSync(dir, { recursive: true, force: true }) };
++}
++
++// An executable script: a stand-in for the compiler or goose-dap.
++function script(file, body) {
++    if (windows) {
++        fs.writeFileSync(`${file}.cmd`, `@echo off\r\n${body.replace(/^echo '(.*)'$/gm, 'echo $1')}\r\n`);
++        return `${file}.cmd`;
++    }
++    fs.writeFileSync(file, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
++    return file;
++}
++
++const PATCHED_HELP = 'usage: goose build file.goose [options]\n  -g, --debug-info      --debug, and the C built for stepping\n';
++const UPSTREAM_HELP = 'usage: goose build file.goose [options]\n  --debug               Overflow, range and tag checks\n';
++
++test('the configurations offered: Run with JIT, as before, and Debug', () => {
++    assert.deepEqual(launchConfigurations(), [
++        { type: 'goose', request: 'launch', name: 'Goose: Run with JIT', noDebug: true },
++        { type: 'goose', request: 'launch', name: 'Goose: Debug' }
++    ]);
++    const pkg = require('../package.json');
++    const debuggers = pkg.contributes.debuggers;
++    assert.equal(debuggers.length, 1);
++    assert.equal(debuggers[0].type, 'goose');
++    assert.deepEqual(debuggers[0].initialConfigurations, launchConfigurations());
++    assert.deepEqual(debuggers[0].configurationSnippets.map(s => s.body), launchConfigurations());
++    assert.deepEqual(pkg.contributes.breakpoints, [{ language: 'goose' }]);
++    const settings = pkg.contributes.configuration.properties;
++    for (const key of ['goose.debugAdapterPath', 'goose.lldbDapPath']) {
++        assert.equal(settings[key].default, '');
++        assert.ok(pkg.capabilities.untrustedWorkspaces.restrictedConfigurations.includes(key), key);
++    }
++    assert.ok(pkg.contributes.commands.some(c => c.command === 'goose.debug'));
++    assert.ok(pkg.contributes.menus['editor/title'].some(m => m.command === 'goose.debug'));
++    // F5 in a Goose editor keeps running with the JIT while the setting is on.
++    const f5 = pkg.contributes.keybindings.find(k => k.key === 'f5');
++    assert.equal(f5.command, 'goose.run');
++    assert.match(f5.when, /config\.goose\.useRunKeybindings/);
++});
++
++test('-g is found in the help of goose build', async () => {
++    assert.equal(supportsDebugInfo(PATCHED_HELP), true);
++    assert.equal(supportsDebugInfo(UPSTREAM_HELP), false);
++    assert.equal(supportsDebugInfo(undefined), false);
++    const spawn = (help, code) => (command, args, options, callback) => {
++        assert.deepEqual(args, ['help', 'build']);
++        assert.equal(options.cwd, 'work');
++        callback(code ? Object.assign(new Error('failed'), { code }) : null, help, '');
++    };
++    assert.deepEqual(await probeDebugInfo('goose', 'work', spawn(PATCHED_HELP)), { found: true, debugInfo: true });
++    assert.deepEqual(await probeDebugInfo('goose', 'work', spawn(UPSTREAM_HELP)), { found: true, debugInfo: false });
++    assert.deepEqual(await probeDebugInfo('goose', 'work', spawn('', 1)), { found: true, debugInfo: false });
++    assert.deepEqual(await probeDebugInfo('goose', 'work', spawn('', 'ENOENT')), { found: false, debugInfo: false });
++});
++
++test('goose-dap is goose.debugAdapterPath, or the first on PATH', () => {
++    const { dir, remove } = scratch();
++    try {
++        const bin = path.join(dir, 'bin');
++        const tools = path.join(dir, 'tools');
++        fs.mkdirSync(bin);
++        fs.mkdirSync(tools);
++        const onPath = path.join(bin, windows ? 'goose-dap.cmd' : 'goose-dap');
++        fs.writeFileSync(onPath, '');
++        fs.writeFileSync(path.join(tools, 'goose-dap'), '');
++        const env = { PATH: [path.join(dir, 'missing'), bin].join(path.delimiter) };
++        assert.equal(findAdapter('', dir, env), onPath);
++        assert.equal(findAdapter('tools/goose-dap', dir, env), path.join(tools, 'goose-dap'));
++        assert.equal(findAdapter('${workspaceFolder}/tools/goose-dap', dir, env), path.join(tools, 'goose-dap'));
++        // A setting that names nothing is not replaced by PATH's.
++        assert.equal(findAdapter('tools/none', dir, env), undefined);
++        assert.equal(findAdapter('', dir, { PATH: path.join(dir, 'missing') }), undefined);
++        // A directory is not the adapter.
++        assert.equal(findAdapter('tools', dir, env), undefined);
++    } finally { remove(); }
++});
++
++test('goose-dap gets the entry file as source, the executable beside it, and the settings', () => {
++    const source = path.resolve('w', 'src', 'main.goose');
++    const resolved = { source, compiler: '/c/goose', cwd: path.resolve('w'), stdlib: '', runArguments: ['a b'], lldbDap: '' };
++    const config = adapterConfiguration({ type: 'goose', request: 'launch', name: 'Goose: Debug', program: source }, resolved, 'darwin');
++    assert.deepEqual(config, {
++        type: 'goose', request: 'launch', name: 'Goose: Debug',
++        source, program: path.resolve('w', 'src', 'main'), build: true, goose: '/c/goose',
++        cwd: path.resolve('w'), args: ['a b'], env: {}
++    });
++    assert.equal(executableFor('C:/w/main.goose', 'win32'), 'C:/w/main.exe');
++    // What the configuration sets wins; goose.stdlibPath and buildArgs go to
++    // goose build; anything else goes on to goose-dap as written.
++    const custom = adapterConfiguration({
++        type: 'goose', request: 'launch', name: 'Mine', program: source, args: [], cwd: 'run',
++        env: { A: '1' }, buildArgs: ['-O1'], lldbDap: '/x/lldb-dap', stopOnEntry: true, showRuntimeFrames: true,
++        stopOnRuntimeError: false, initCommands: ['bt']
++    }, { ...resolved, stdlib: '/s/stdlib', lldbDap: '/y/lldb-dap' }, 'linux');
++    assert.deepEqual(custom, {
++        type: 'goose', request: 'launch', name: 'Mine', source, program: path.resolve('w', 'src', 'main'),
++        build: true, goose: '/c/goose', cwd: path.resolve('w', 'run'), args: [], env: { A: '1' },
++        buildArgs: ['--stdlib', '/s/stdlib', '-O1'], lldbDap: '/x/lldb-dap', stopOnEntry: true,
++        showRuntimeFrames: true, stopOnRuntimeError: false, initCommands: ['bt']
++    });
++    assert.equal(adapterConfiguration({}, resolved, 'darwin').name, 'Goose: Debug');
++    assert.equal(adapterConfiguration({}, { ...resolved, lldbDap: '/y/lldb-dap' }, 'darwin').lldbDap, '/y/lldb-dap');
++});
++
++test('the debug adapter factory runs goose-dap over stdio, or says where to get it', () => {
++    class DebugAdapterExecutable { constructor(command, args, options) { Object.assign(this, { command, args, options }); } }
++    const factory = descriptorFactory({ DebugAdapterExecutable }, session => session.found);
++    const descriptor = factory.createDebugAdapterDescriptor({ found: '/opt/goose-dap' });
++    assert.ok(descriptor instanceof DebugAdapterExecutable);
++    assert.equal(descriptor.command, '/opt/goose-dap');
++    assert.deepEqual(descriptor.args, []);
++    assert.throws(() => factory.createDebugAdapterDescriptor({ found: undefined }), /goose\.debugAdapterPath/);
++});
++
++// --- the extension, activated against a stub of the VS Code API ---------
++
++function workspace(helpText, withAdapter = true) {
++    const { dir, remove } = scratch();
++    const compiler = script(path.join(dir, 'goose'), helpText.split('\n').filter(Boolean).map(line => `echo '${line}'`).join('\n'));
++    fs.writeFileSync(path.join(dir, 'main.goose'), 'fn main() { print(1); }\n');
++    const adapter = path.join(dir, 'goose-dap');
++    if (withAdapter) fs.writeFileSync(adapter, '');
++    const folder = { uri: { fsPath: dir, scheme: 'file', toString: () => `file://${dir}` }, name: 'w', index: 0 };
++    return { dir, remove, compiler, adapter, folder };
++}
++
++test('a goose configuration with noDebug runs with the JIT, as before', async () => {
++    const w = workspace(PATCHED_HELP);
++    try {
++        const values = { compilerPath: w.compiler, entryFile: 'main.goose', useLanguageServer: false, checkOnSave: false };
++        const { seen, provider, context, extension } = await activated({ folder: w.folder, values });
++        try {
++            assert.deepEqual(await provider.provideDebugConfigurations(w.folder), launchConfigurations());
++            const config = provider.resolveDebugConfiguration(w.folder, { noDebug: true });
++            assert.deepEqual(config, { type: 'goose', request: 'launch', name: 'Goose: Run with JIT', noDebug: true });
++            assert.equal(await provider.resolveDebugConfigurationWithSubstitutedVariables(w.folder, config), undefined);
++            assert.equal(seen.tasks.length, 1);
++            const task = seen.tasks[0];
++            assert.equal(task.definition.action, 'run');
++            assert.equal(task.execution.process, w.compiler);
++            assert.deepEqual(task.execution.args, ['--jit', path.join(w.dir, 'main.goose')]);
++            assert.deepEqual(seen.errors, []);
++        } finally { context.subscriptions.forEach(d => d.dispose?.()); await extension.deactivate(); }
++    } finally { w.remove(); }
++});
++
++test('a goose configuration without noDebug is a goose-dap session that builds with -g', async () => {
++    const w = workspace(PATCHED_HELP);
++    try {
++        const values = {
++            compilerPath: w.compiler, entryFile: 'main.goose', useLanguageServer: false, checkOnSave: false,
++            debugAdapterPath: '${workspaceFolder}/goose-dap', lldbDapPath: 'tools/lldb-dap', runArguments: ['x']
++        };
++        const { vscode, seen, provider, context, extension } = await activated({ folder: w.folder, values });
++        try {
++            // F5 with no launch.json: an empty configuration.
++            const config = provider.resolveDebugConfiguration(w.folder, {});
++            assert.deepEqual(config, { type: 'goose', request: 'launch', name: 'Goose: Debug' });
++            const resolved = await provider.resolveDebugConfigurationWithSubstitutedVariables(w.folder, config);
++            assert.deepEqual(seen.errors, []);
++            assert.equal(seen.tasks.length, 0, 'a debug session runs no JIT task');
++            const source = path.join(w.dir, 'main.goose');
++            assert.deepEqual(resolved, {
++                type: 'goose', request: 'launch', name: 'Goose: Debug',
++                source, program: executableFor(source), build: true, goose: w.compiler,
++                cwd: w.dir, args: ['x'], env: {}, lldbDap: path.join(w.dir, 'tools', 'lldb-dap')
++            });
++            // The factory serves that session with goose-dap.
++            assert.equal(seen.factories.length, 1);
++            assert.equal(seen.factories[0].type, 'goose');
++            const descriptor = seen.factories[0].factory.createDebugAdapterDescriptor({ workspaceFolder: w.folder, configuration: resolved });
++            assert.equal(descriptor.command, w.adapter);
++            assert.deepEqual(descriptor.args, []);
++            // A configuration's program is the Goose file to build.
++            const other = path.join(w.dir, 'other.goose');
++            fs.writeFileSync(other, 'fn main() {}\n');
++            const explicit = await provider.resolveDebugConfigurationWithSubstitutedVariables(w.folder,
++                { type: 'goose', request: 'launch', name: 'Other', program: other, args: ['y'], stopOnEntry: true });
++            assert.equal(explicit.source, other);
++            assert.equal(explicit.program, executableFor(other));
++            assert.deepEqual(explicit.args, ['y']);
++            assert.equal(explicit.stopOnEntry, true);
++            // Goose: Debug starts the session in the file's folder.
++            // Goose: Debug starts a session in the active file's folder, which
++            // resolves the entry file as above.
++            vscode.window.activeTextEditor = { document: { languageId: 'goose', uri: vscode.Uri.file(other), isDirty: false, isUntitled: false } };
++            await seen.commands.get('goose.debug')();
++            assert.equal(seen.started.length, 1);
++            assert.equal(seen.started[0].target, w.folder);
++            assert.deepEqual(seen.started[0].config, { type: 'goose', request: 'launch', name: 'Goose: Debug' });
++            // The code lens above a main names its file: that file is debugged.
++            await seen.commands.get('goose.debug')(`file://${other}`);
++            assert.equal(seen.started[1].config.program, other);
++        } finally { context.subscriptions.forEach(d => d.dispose?.()); await extension.deactivate(); }
++    } finally { w.remove(); }
++});
++
++test('debugging says what to install when goose-dap or -g is missing, or the workspace is not trusted', async () => {
++    for (const [help, withAdapter, trusted, expect] of [
++        [PATCHED_HELP, false, true, /Put goose-dap on PATH or set goose\.debugAdapterPath/],
++        [UPSTREAM_HELP, true, true, /cannot build for a debugger.*-g \(--debug-info\)/],
++        [PATCHED_HELP, true, false, /Trust this workspace to debug/]
++    ]) {
++        const w = workspace(help, withAdapter);
++        try {
++            const values = {
++                compilerPath: w.compiler, entryFile: 'main.goose', useLanguageServer: false, checkOnSave: false,
++                debugAdapterPath: withAdapter ? w.adapter : ''
++            };
++            const savedPath = process.env.PATH;
++            process.env.PATH = path.join(w.dir, 'empty');
++            let seen, provider, context, extension;
++            try {
++                ({ seen, provider, context, extension } = await activated({ folder: w.folder, values, trusted }));
++            } finally { process.env.PATH = savedPath; }
++            try {
++                process.env.PATH = path.join(w.dir, 'empty');
++                const config = provider.resolveDebugConfiguration(w.folder, { type: 'goose', request: 'launch', name: 'Goose: Debug' });
++                assert.equal(await provider.resolveDebugConfigurationWithSubstitutedVariables(w.folder, config), undefined);
++                assert.equal(seen.tasks.length, 0);
++                const said = [...seen.errors, ...seen.warnings];
++                assert.equal(said.length, 1, said.join('\n'));
++                assert.match(said[0], expect);
++            } finally {
++                process.env.PATH = savedPath;
++                context.subscriptions.forEach(d => d.dispose?.());
++                await extension.deactivate();
++            }
++        } finally { w.remove(); }
++    }
++    assert.match(messages.noAdapter('/x/goose-dap'), /not found at goose\.debugAdapterPath \(\/x\/goose-dap\)/);
++    assert.match(messages.noCompiler('goose'), /goose\.compilerPath/);
++});
+diff --git a/vscode/test/extension-host.js b/vscode/test/extension-host.js
+index 9702b131..dd4a0147 100644
+--- a/vscode/test/extension-host.js
++++ b/vscode/test/extension-host.js
+@@ -136,7 +136,7 @@ async function run() {
+     const other = vscode.Uri.joinPath(folder.uri, 'other program.goose');
+     await fs.writeFile(other.fsPath, 'fn main() { print("OTHER_JIT_TEST"); }\n');
+     await runTask(() => vscode.debug.startDebugging(folder, {
+-        type: 'goose', request: 'launch', name: 'JIT explicit file', program: '${workspaceFolder}/other program.goose'
++        type: 'goose', request: 'launch', name: 'JIT explicit file', program: '${workspaceFolder}/other program.goose', noDebug: true
+     }), other.fsPath);
+     assert.equal(vscode.debug.activeDebugSession, undefined, 'JIT runs do not create a debugger session');
+     console.log('Goose extension host: editor features, diagnostics, build tasks and JIT run configurations passed.');
+diff --git a/vscode/test/vscode-stub.js b/vscode/test/vscode-stub.js
+new file mode 100644
+index 00000000..2160bc36
+--- /dev/null
++++ b/vscode/test/vscode-stub.js
+@@ -0,0 +1,103 @@
++'use strict';
++
++// A stub of the VS Code API, enough to activate the extension outside the
++// editor and call what it registers: the debug configuration provider, the
++// debug adapter factory and the commands. What a test does not give is a
++// no-op.
++
++const path = require('node:path');
++const Module = require('node:module');
++
++// Any member not given is a no-op function whose results are no-ops too.
++function stub() {
++    const target = function () {};
++    const cache = new Map();
++    return new Proxy(target, {
++        get(_t, key) {
++            if (key === 'then') return undefined;
++            if (key === Symbol.toPrimitive) return () => '';
++            if (!cache.has(key)) cache.set(key, stub());
++            return cache.get(key);
++        },
++        set(_t, key, value) { cache.set(key, value); return true; },
++        apply() { return stub(); }
++    });
++}
++
++function fakeVscode({ folder, values, trusted = true }) {
++    const seen = { errors: [], warnings: [], tasks: [], providers: [], factories: [], commands: new Map(), started: [] };
++    class Uri {
++        constructor(fsPath) { this.fsPath = fsPath; this.scheme = 'file'; }
++        static file(p) { return new Uri(path.resolve(p)); }
++        static parse(s) { return new Uri(s.replace(/^file:\/\//, '')); }
++        toString() { return `file://${this.fsPath}`; }
++    }
++    const within = uri => uri && (uri.fsPath === folder.uri.fsPath || uri.fsPath.startsWith(folder.uri.fsPath + path.sep));
++    const vscode = {
++        Uri,
++        Disposable: { from: (...items) => ({ dispose() { items.forEach(item => item.dispose?.()); } }) },
++        DebugAdapterExecutable: class { constructor(command, args) { Object.assign(this, { command, args }); } },
++        Task: class { constructor(definition, scope, name, source, execution) { Object.assign(this, { definition, scope, name, source, execution }); } },
++        ProcessExecution: class { constructor(process, args, options) { Object.assign(this, { process, args, options }); } },
++        TaskGroup: { Build: { id: 'build' } }, TaskScope: { Workspace: 2 },
++        TaskRevealKind: { Always: 1 }, TaskPanelKind: { Dedicated: 2 },
++        StatusBarAlignment: { Left: 1 }, DebugConfigurationProviderTriggerKind: { Initial: 1, Dynamic: 2 },
++        workspace: {
++            isTrusted: trusted,
++            workspaceFolders: [folder],
++            textDocuments: [],
++            openTextDocument: async uri => ({ languageId: 'goose', uri, isDirty: false, isUntitled: false }),
++            getWorkspaceFolder: uri => within(uri) ? folder : undefined,
++            getConfiguration: () => ({ get: (key, dflt) => key in values ? values[key] : dflt }),
++            createFileSystemWatcher: () => stub(),
++            onDidOpenTextDocument: () => stub(), onDidSaveTextDocument: () => stub(),
++            onDidChangeTextDocument: () => stub(), onDidCloseTextDocument: () => stub(),
++            onDidChangeConfiguration: () => stub(), onDidChangeWorkspaceFolders: () => stub(),
++            onDidGrantWorkspaceTrust: () => stub()
++        },
++        window: {
++            activeTextEditor: undefined,
++            showErrorMessage: message => { seen.errors.push(message); },
++            showWarningMessage: message => { seen.warnings.push(message); },
++            createOutputChannel: () => ({ appendLine() {}, show() {}, dispose() {} }),
++            createStatusBarItem: () => stub(),
++            onDidChangeActiveTextEditor: () => stub()
++        },
++        languages: stub(),
++        tasks: {
++            executeTask: async task => { seen.tasks.push(task); },
++            registerTaskProvider: () => stub()
++        },
++        debug: {
++            registerDebugConfigurationProvider: (type, provider, kind) => { seen.providers.push({ type, provider, kind }); return stub(); },
++            registerDebugAdapterDescriptorFactory: (type, factory) => { seen.factories.push({ type, factory }); return stub(); },
++            startDebugging: async (target, config) => { seen.started.push({ target, config }); return true; }
++        },
++        commands: { registerCommand: (name, fn) => { seen.commands.set(name, fn); return stub(); } }
++    };
++    return { vscode, seen };
++}
++
++async function activated(options) {
++    const { vscode, seen } = fakeVscode(options);
++    const resolve = Module._resolveFilename;
++    Module._resolveFilename = function (request, ...rest) {
++        return request === 'vscode' ? 'vscode' : resolve.call(this, request, ...rest);
++    };
++    require.cache.vscode = { id: 'vscode', filename: 'vscode', loaded: true, exports: vscode };
++    const extensionPath = require.resolve('../src/extension');
++    delete require.cache[extensionPath];
++    try {
++        const extension = require(extensionPath);
++        const context = { subscriptions: [] };
++        await extension.activate(context);
++        const provider = seen.providers.find(p => p.kind === undefined).provider;
++        return { vscode, seen, provider, context, extension };
++    } finally {
++        Module._resolveFilename = resolve;
++        delete require.cache.vscode;
++        delete require.cache[extensionPath];
++    }
++}
++
++module.exports = { stub, fakeVscode, activated };
+-- 
+2.50.1 (Apple Git-155)
+

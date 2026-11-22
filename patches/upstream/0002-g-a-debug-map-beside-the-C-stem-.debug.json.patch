@@ -1,7 +1,7 @@
 From a960529352fb4ea27902fd352fe576407ae77891 Mon Sep 17 00:00:00 2001
 From: SorinS <ssuciu@gmail.com>
 Date: Sat, 21 Nov 2026 23:08:50 +0000
-Subject: [PATCH 2/3] -g: a debug map beside the C, <stem>.debug.json
+Subject: [PATCH 2/5] -g: a debug map beside the C, <stem>.debug.json
 
 The C's debug information gives a debugger addresses, lines and C types,
 not what the C types stand for: a resizable is a bare header, a

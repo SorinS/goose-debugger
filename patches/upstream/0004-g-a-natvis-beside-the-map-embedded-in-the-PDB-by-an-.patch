@@ -1,0 +1,532 @@
+From d93876471d43ed300d67176384e201308a86b2ab Mon Sep 17 00:00:00 2001
+From: SorinS <ssuciu@gmail.com>
+Date: Sat, 21 Nov 2026 23:33:04 +0000
+Subject: [PATCH 4/5] -g: a natvis beside the map, embedded in the PDB by an
+ MSVC link
+
+On Windows the debuggers that read a PDB -- Visual Studio, VS Code's
+cppvsdbg, WinDbg and cdb -- show values through natvis, static XML
+matched on C type names. -g now writes one beside the debug map,
+<stem>.natvis, and goose build's MSVC link stores it in the PDB
+(/link /NATVIS:), from where those debuggers load it with nothing to
+configure: cdb's .nvlist names it as the exe's embedded NatVis.
+
+- natvis.h writes it from the map and the C: an entry for each slice,
+  fixed and limited array type the C's typedefs declare (natvis has no
+  wildcard for sl_*), each struct and fixed-mode enum under its Goose
+  field, variant and tag names, each variant's payload type, and the
+  globals block. bool, u8, T&, T?, relative references and resizable
+  fields are shown by their Goose types, which the C type cannot tell
+  apart; a struct with nullable or resizable fields has one summary per
+  combination of their states, up to 48.
+- It is written on every platform, as the map is: where the C is
+  written the C compiler is not yet known (goose -g -o prog.c names
+  none, and goose build finds it after), and a C file may be compiled
+  elsewhere. /NATVIS goes only to an msvc-style link (cl, clang-cl).
+- json.h's reader reads the map back.
+
+Test: on seven sample programs, `goose build -g` with MSVC 19.44 puts
+the natvis in the PDB, and cdb 10.0.26100 with nothing loaded shows
+every Goose local and global as goose-debugger's gen_natvis.py --all
+does, but for the guessed [as T] views of a resizable local; --debug
+alone writes and embeds none. The compiler suite passes on macOS and
+on Windows.
+---
+ CMakeLists.txt       |   1 +
+ docs/command_line.md |   2 +-
+ src/build.h          |   7 +
+ src/json.h           |   5 +-
+ src/main.cpp         |  11 +-
+ src/natvis.h         | 379 +++++++++++++++++++++++++++++++++++++++++++
+ 6 files changed, 401 insertions(+), 4 deletions(-)
+ create mode 100644 src/natvis.h
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index fda0077a..541717f3 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -70,6 +70,7 @@ add_executable(goose
+     src/codegen_stacks.h
+     src/codegen_nodes.h
+     src/codegen_debugmap.h
++    src/natvis.h
+     src/runtime_inline.h
+     src/jit.h
+     src/runtime/runtime.h
+diff --git a/docs/command_line.md b/docs/command_line.md
+index 9ef5b304..9e5c3fa2 100644
+--- a/docs/command_line.md
++++ b/docs/command_line.md
+@@ -162,7 +162,7 @@ beyond those in [§5](#5-options-for-run-build-and-check):
+ |---|---|
+ | `-o exe` | Where the executable goes. Its directory is made if needed. |
+ | `--debug` | Turn on the overflow, range and tag checks (`GS_DEBUG=1`), and build the C without optimization and with debug information (`/Od /Zi`, or `-O0 -g`), for a debugger. |
+-| `-g`, `--debug-info` | `--debug`, and the C built for stepping the Goose source in a debugger: `#line` directives, so a debugger shows, steps and stops on the Goose source, one breakpoint location to a line; a `<stem>.debug.json` beside the C, which gives a debugger's Goose support the Goose names, types and scopes of functions and locals and the fields and variants of their types; and, unless an `-O` says otherwise, no inlining (`-O0`), so every function keeps a frame of its own. |
++| `-g`, `--debug-info` | `--debug`, and the C built for stepping the Goose source in a debugger: `#line` directives, so a debugger shows, steps and stops on the Goose source, one breakpoint location to a line; a `<stem>.debug.json` beside the C, which gives a debugger's Goose support the Goose names, types and scopes of functions and locals and the fields and variants of their types; a `<stem>.natvis` beside it, the same types as Visual Studio and WinDbg visualizers, which an MSVC build stores in the PDB (`/NATVIS`) for them to load; and, unless an `-O` says otherwise, no inlining (`-O0`), so every function keeps a frame of its own. |
+ | `--cc name\|path` | The C compiler, as above. |
+ | `--standalone` | Compile the runtime into the program, rather than linking the runtime object built once per C compiler. |
+ | `--shared` | Build a self-contained shared library (`lib<stem>.so`, `lib<stem>.dylib` or `<stem>.dll`) instead of an executable. The library has no C `main`; `goose_init`, `goose_exit` and the program's `export fn` symbols are its host API ([reference §24](reference.md#24-calling-c-and-being-called-from-c)). This implies `--standalone`; `--header out.h` ([§8](#8-writing-the-c-yourself)) writes the host's header too. |
+diff --git a/src/build.h b/src/build.h
+index 28208fc9..b377cf2d 100644
+--- a/src/build.h
++++ b/src/build.h
+@@ -19,6 +19,7 @@ struct BuildOptions {
+     bool standalone = false;  // --standalone: no runtime object
+     bool shared = false;      // --shared: build a self-contained shared library
+     string exe;               // -o: the executable/library; "" puts it beside the root source
++    string natvis;            // -g: the program's natvis (natvis.h), which an MSVC link embeds
+ };
+ 
+ inline string AbsolutePath(const string &path) {
+@@ -164,6 +165,12 @@ struct Builder {
+             argv.push_back(src);
+             for (auto &o : objects) argv.push_back(o);
+             for (auto &r : rsps) argv.push_back(cat("@", r));
++            // Last, as what follows /link is the linker's: -g's natvis
++            // stored in the PDB, where Visual Studio and WinDbg find it.
++            if (opts.debug && !opts.natvis.empty() && PathExists(opts.natvis)) {
++                argv.push_back("/link");
++                argv.push_back(cat("/NATVIS:", opts.natvis));
++            }
+         } else {
+             if (opts.shared) {
+                 // Not on Windows, where clang rejects the flag for its
+diff --git a/src/json.h b/src/json.h
+index b5423ab6..ee76533e 100644
+--- a/src/json.h
++++ b/src/json.h
+@@ -1,6 +1,7 @@
+ // Goose compiler — a JSON reader, for what CMake's file API replies about
+-// a package's link line (native.h). Enough of JSON for that: objects,
+-// arrays, strings with their escapes, numbers, true, false and null. And a
++// a package's link line (native.h) and for the debug map natvis.h reads
++// back. Enough of JSON for that: objects, arrays, strings with their
++// escapes, numbers, true, false and null. And a
+ // string with its escapes, for what the compiler writes as JSON: the
+ // diagnostics `--diagnostics json` prints (main.cpp), `goose toolchain
+ // --json` (toolchain.h) and the language server's messages (lsp_rpc.h).
+diff --git a/src/main.cpp b/src/main.cpp
+index 51c598ad..4e27dd60 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -46,6 +46,7 @@
+ #include "buildfile.h"
+ #include "json.h"
+ #include "codegen_debugmap.h"
++#include "natvis.h"
+ #include "toolchain.h"
+ #include "builtin.h"
+ #include "build.h"
+@@ -1832,8 +1833,14 @@ int Main(int argc, char **argv) {
+                 auto mapfile = outfile.size() > 2 && outfile.compare(outfile.size() - 2, 2, ".c") == 0
+                                    ? outfile.substr(0, outfile.size() - 2) : outfile;
+                 mapfile += ".debug.json";
+-                if (!WriteFileMakingDirs(mapfile, cg.DebugMap()))
++                auto mapjson = cg.DebugMap();
++                if (!WriteFileMakingDirs(mapfile, mapjson))
+                     throw CompileError { cat("cannot write output file: ", mapfile) };
++                // And the natvis made from it (natvis.h), which goose
++                // build's MSVC link embeds in the PDB (build.h).
++                auto nvfile = mapfile.substr(0, mapfile.size() - 11) + ".natvis";
++                if (!WriteFileMakingDirs(nvfile, Natvis(mapjson, out)))
++                    throw CompileError { cat("cannot write output file: ", nvfile) };
+             }
+             if (stats) fprintf(msgs, "wrote %s (%d bytes)\n", outfile.c_str(), (int)out.size());
+         }
+@@ -1923,6 +1930,8 @@ int Main(int argc, char **argv) {
+                     if (!BuildNativePart(*astp, pkg, filename, b, false, nb)) return 1;
+                     rsps.push_back(nb.rsp);
+                 }
++                // Beside the C and the map, where the compile put it.
++                if (debuginfo) buildopts.natvis = cat(builddir, "/", PathStem(file), ".natvis");
+                 return BuildExecutable(filename, outfile, builddir, tc, buildopts, msgs, rsps,
+                                        astp->packages[0].output);
+             }
+diff --git a/src/natvis.h b/src/natvis.h
+new file mode 100644
+index 00000000..05fad060
+--- /dev/null
++++ b/src/natvis.h
+@@ -0,0 +1,379 @@
++// Goose compiler — the natvis that -g writes beside the debug map, as
++// <stem>.natvis: Visual Studio's and WinDbg's type visualizers for the
++// program's C, which an MSVC link embeds in the PDB (/NATVIS:, build.h) so
++// that Visual Studio, VS Code's cppvsdbg and cdb show Goose values with
++// nothing to load. Written from the map (codegen_debugmap.h) and the C, on
++// every platform: where the C is written the C compiler is not yet known,
++// and a C file may be compiled elsewhere.
++//
++// Natvis matches exact C type names, with no wildcard but a C++ template's
++// arguments, and has no map at run time. So each array and slice type gets
++// an entry of its own, found in the C's typedefs (the runtime's among them):
++//
++//   typedef struct { T *data; int64_t len; } sl_X;
++//   typedef struct { T e[N]; } aN_X;
++//   typedef struct { uintK_t len; T e[N]; } lN_X;
++//
++// and the Goose field, variant and tag names, which the map has and the PDB
++// does not, are written into the entries. A summary has no conditional
++// part, so a struct with a nullable or a resizable field has one summary
++// per combination of their states (null or not, length 0 to INLINE, ...),
++// up to MAXCOMBOS; past that those fields show as an address and len=N.
++// What the C type cannot tell apart (a resizable local's element type, a
++// variable-size value, bool from u8 and T& from T? in a local) is left to a
++// debugger that reads the map.
++//
++// A port of goose-debugger's natvis/gen_natvis.py --all, but for the views
++// that script adds: [as T] guesses on a resizable local, and a shallow
++// view that stops a cycle of references one level down (here the
++// debugger's own nesting limit stops it, as {...}). Included after json.h,
++// whose ParseJson reads the map back.
++#pragma once
++
++namespace goose {
++
++// The text v with XML's special characters escaped.
++inline string XmlQuote(string_view v) {
++    string s;
++    for (auto c : v) {
++        switch (c) {
++            case '<':  s += "&lt;"; break;
++            case '>':  s += "&gt;"; break;
++            case '&':  s += "&amp;"; break;
++            case '"':  s += "&quot;"; break;
++            case '\'': s += "&apos;"; break;
++            default:   s += c;
++        }
++    }
++    return s;
++}
++
++struct NatvisWriter {
++    static constexpr int INLINE = 8;       // Elements a list's summary shows before "...".
++    static constexpr size_t MAXCOMBOS = 48; // Summaries per struct or variant.
++    // A length no live array has: a stale or uninitialized header.
++    static constexpr const char *MAXLEN = "1099511627776";
++
++    // A field's summary texts, each with the condition it holds under; the
++    // last one's is "", the default.
++    using Alts = vector<pair<string, string>>;
++
++    string out;
++    set<string> done;            // The C names that have an entry: the first one wins.
++    map<string, string> cnames;  // A struct's or enum's Goose name -> its C name.
++
++    static bool Ends(const string &s, string_view tail) {
++        return s.size() > tail.size() && s.compare(s.size() - tail.size(), tail.size(), tail) == 0;
++    }
++    static string And(const string &a, const string &b) {
++        return a.empty() ? b : b.empty() ? a : cat("(", a, ") &amp;&amp; (", b, ")");
++    }
++    static string BadLen(const string &len) { return cat(len, " &lt; 0 || ", len, " &gt; ", MAXLEN); }
++
++    // The C type a debugger reads a Goose scalar as, in the PDB's spelling;
++    // "" for anything else.
++    static string ScalarC(const string &t) {
++        static const pair<const char *, const char *> m[] = {
++            { "i8", "signed char" }, { "u8", "unsigned char" }, { "bool", "unsigned char" },
++            { "i16", "short" }, { "u16", "unsigned short" }, { "i32", "int" },
++            { "u32", "unsigned int" }, { "i64", "__int64" }, { "u64", "unsigned __int64" },
++            { "f32", "float" }, { "f64", "double" } };
++        for (auto &[g, c] : m) if (t == g) return c;
++        return "";
++    }
++    // A one-byte element, which a debugger would show as a character.
++    static bool IsByte(const string &c) {
++        return c == "uint8_t" || c == "int8_t" || c == "gs_u8" || c == "gs_i8" ||
++               c == "unsigned char" || c == "signed char";
++    }
++    // The C type of a Goose scalar or a struct or enum with one; "" else.
++    string CType(const string &t) const {
++        auto c = ScalarC(t);
++        if (c.empty()) if (auto it = cnames.find(t); it != cnames.end()) c = it->second;
++        return c;
++    }
++
++    bool Open(const string &cname, const string &comment = "") {
++        if (!done.insert(cname).second) return false;
++        if (!comment.empty()) Append(out, "  <!-- ", XmlQuote(comment), " -->\n");
++        Append(out, "  <Type Name=\"", cname, "\">\n");
++        return true;
++    }
++    void Close() { out += "  </Type>\n"; }
++    static string Display(const string &text, const string &cond, const string &indent = "    ") {
++        return cat(indent, "<DisplayString", cond.empty() ? string() : cat(" Condition=\"", cond, "\""),
++                   ">", text, "</DisplayString>\n");
++    }
++
++    // [a, b, c] for the first INLINE of ptr[0..len): one summary per short
++    // length, or the one a fixed length has. Text is a string instead.
++    static Alts List(const string &ptr, const string &len, bool bytes, bool text, int fixed = -1) {
++        auto items = [&](int k) {
++            string s;
++            for (int i = 0; i < k; i++)
++                Append(s, i ? ", " : "", "{", ptr, "[", i, "]", bytes ? ",d" : "", "}");
++            return s;
++        };
++        if (text && fixed >= 0) return { { "", cat("{", ptr, ",[", fixed, "]s8}") } };
++        if (fixed >= 0) {
++            auto k = std::min(fixed, INLINE);
++            return { { "", cat("[", items(k), fixed > k ? cat(", ...] (", fixed, " elements)") : string("]")) } };
++        }
++        Alts a = { { BadLen(len), cat("&lt;invalid len={", len, "}&gt;") } };
++        if (text) {
++            a.emplace_back("", cat("{", ptr, ",[", len, "]s8}"));
++            return a;
++        }
++        for (int k = 0; k <= INLINE; k++) a.emplace_back(cat(len, " == ", k), cat("[", items(k), "]"));
++        a.emplace_back("", cat("[", items(INLINE), ", ...] ({", len, "} elements)"));
++        return a;
++    }
++    // The elements as children, none for a length that cannot be. dx
++    // ignores a format specifier in a ValueNode, so bytes are cast to int
++    // to show as numbers.
++    static string Children(const string &ptr, const string &len, bool bytes, bool fixed) {
++        auto when = fixed ? string()
++                  : cat(" Condition=\"", len, " &gt;= 0 &amp;&amp; ", len, " &lt;= ", MAXLEN, "\"");
++        if (bytes)
++            return cat("<IndexListItems", when, "><Size>", len, "</Size><ValueNode>(int)", ptr,
++                       "[$i]</ValueNode></IndexListItems>");
++        return cat("<ArrayItems", when, "><Size>", len, "</Size><ValuePointer>", ptr,
++                   "</ValuePointer></ArrayItems>");
++    }
++
++    // An array type the C declares: kind 's' for sl_X, 'a' for aN_X, 'l'
++    // for lN_X, with its element's C type. A u8 one is text.
++    void Array(const string &name, char kind, const string &elem, int n) {
++        if (!Open(name)) return;
++        auto text = Ends(name, "_u8");
++        auto ptr = kind == 's' ? string("data") : string("e");
++        auto len = kind == 'a' ? cat(n) : string("len");
++        for (auto &[cond, s] : List(ptr, len, IsByte(elem), text, kind == 'a' ? n : -1))
++            out += Display(s, cond);
++        out += "    <Expand>\n";
++        if (kind == 's') out += "      <Item Name=\"[len]\">len</Item>\n";
++        Append(out, "      ", Children(ptr, len, IsByte(elem) || text, kind == 'a'), "\n");
++        out += "    </Expand>\n";
++        Close();
++    }
++
++    // The runtime's resizable header and its references, whose element
++    // type no C type says.
++    void Generic() {
++        if (Open("gs_rhdr", "T[>..]: the element type is not in the C type")) {
++            out += Display("&lt;invalid len={len}&gt;", BadLen("len"));
++            out += Display("len={len}", "");
++            out += "    <Expand><Item Name=\"[len]\">len</Item><Item Name=\"[base]\">base</Item></Expand>\n";
++            Close();
++        }
++        for (auto name : { "gs_rref", "gs_pref" }) {
++            if (!Open(name, name == string("gs_rref") ? "a resizable passed by reference" : "")) continue;
++            out += Display("null", "hdr == 0");
++            out += Display("{*hdr}", "");
++            out += "    <Expand><ExpandedItem Condition=\"hdr != 0\">*hdr</ExpandedItem></Expand>\n";
++            Close();
++        }
++    }
++
++    // One field at `prefix`, present where `cond` holds: its summary texts,
++    // full and compact, and its children appended to `kids`. The Goose type
++    // decides how, as the C type cannot tell bool from u8, T& from T?, nor
++    // which offset a relative reference is from. A resizable field, whose
++    // struct names its element type, gets a child listing the elements.
++    void Field(const Json &f, const string &prefix, const string &cond, Alts &full, Alts &compact,
++               string &kids) {
++        auto c = prefix + f.Str("c"), name = XmlQuote(f.Str("name")), t = f.Str("type");
++        if (t.compare(0, 6, "const ") == 0) t = t.substr(6);
++        auto item = [&](const string &expr, const string &extra = "") {
++            auto when = And(cond, extra);
++            Append(kids, "      <Item Name=\"", name, "\"",
++                   when.empty() ? string() : cat(" Condition=\"", when, "\""), ">", expr, "</Item>\n");
++        };
++        auto one = [&](const string &text) { full = compact = { { "", text } }; };
++        if (t == "bool") { one(cat("{(bool)", c, "}")); item(cat("(bool)", c)); return; }
++        if (t == "u8" || t == "i8") { one(cat("{", c, ",d}")); item(cat(c, ",d")); return; }
++        if (!ScalarC(t).empty()) { one(cat("{", c, "}")); item(c); return; }
++        // T&, T? and the relative T&<uK>, T&<uK in pool>, with or without ?.
++        auto opt = Ends(t, "?");
++        auto r = opt ? t.substr(0, t.size() - 1) : t;
++        string target, deref;
++        auto open = Ends(r, ">") ? r.rfind('<') : string::npos;
++        if (open != string::npos && open > 0 && r[open - 1] == '&') {
++            auto args = r.substr(open + 1, r.size() - open - 2);
++            auto in = args.find(" in ");
++            auto width = args.substr(0, in);
++            auto signedc = width == "u8" ? "signed char" : width == "u16" ? "short"
++                         : width == "u32" ? "int" : width == "u64" ? "__int64" : "";
++            target = r.substr(0, open - 1);
++            auto tc = CType(target);
++            if (tc.empty() || !*signedc) { one(cat("{", c, "}")); item(c); return; }
++            string addr;
++            if (in == string::npos) {   // From the reference itself.
++                addr = cat("(unsigned char*)&amp;", c, " + (", signedc, ")", c);
++            } else {   // From the pool's base: 1 is its first byte.
++                string g;
++                auto pool = args.substr(in + 4);
++                for (size_t p = 0, q; p <= pool.size(); p = q + 1) {
++                    q = pool.find('.', p);
++                    if (q == string::npos) q = pool.size();
++                    Append(g, g.empty() ? "" : ".", pool.substr(p, q - p), "_g");
++                }
++                addr = cat("gs_globals_main.", g, ".base - 1 + ", c);
++            }
++            deref = cat("*(", tc, "*)(", addr, ")");
++        } else if (Ends(r, "&") || opt) {
++            target = Ends(r, "&") ? r.substr(0, r.size() - 1) : r;
++            deref = cat("*", c);
++        }
++        if (!deref.empty()) {
++            auto fmt = target == "u8" || target == "i8" ? ",d" : "";
++            if (target == "bool") deref = cat("(bool)", deref);
++            auto shown = cat("{", deref, fmt, "}");
++            if (!opt) { one(shown); item(cat(deref, fmt)); return; }
++            full = { { cat(c, " == 0"), "null" }, { "", shown } };
++            compact = { { "", cat("{", c, "}") } };
++            item(c, cat(c, " == 0"));
++            item(cat(deref, fmt), cat(c, " != 0"));
++            return;
++        }
++        if (Ends(t, "[>..]") || Ends(t, "[>..<]")) {
++            auto et = t.substr(0, t.rfind('['));
++            auto ec = CType(et);
++            if (ec.empty()) { one(cat("len={", c, ".len}")); item(c); return; }   // Variable size.
++            auto ptr = cat("((", ec, "*)", c, ".base)"), len = cat(c, ".len");
++            full = List(ptr, len, IsByte(ec), et == "u8");
++            compact = { { "", cat("len={", len, "}") } };
++            Append(kids, "      <Synthetic Name=\"", name, "\"",
++                   cond.empty() ? string() : cat(" Condition=\"", cond, "\""), ">\n");
++            for (auto &[w, s] : full) kids += Display(s, w, "        ");
++            Append(kids, "        <Expand><Item Name=\"[len]\">", len, "</Item>",
++                   Children(ptr, len, IsByte(ec), false), "</Expand>\n      </Synthetic>\n");
++            return;
++        }
++        // A struct, an enum, an array, a slice: its own entry.
++        one(cat("{", c, "}"));
++        item(c);
++    }
++
++    // `head { f: v, ... }` for the fields at `prefix`, one summary for each
++    // combination of their texts, under `cond`; their children to `kids`.
++    // The combinations are in order, each field's alternatives in its own,
++    // so the first whose conditions hold is the right one.
++    void Fields(const vector<Json> &fs, const string &prefix, const string &cond, const string &head,
++                string &kids) {
++        if (fs.empty()) {
++            out += Display(head, cond);
++            return;
++        }
++        vector<Alts> full(fs.size()), compact(fs.size());
++        for (size_t i = 0; i < fs.size(); i++) Field(fs[i], prefix, cond, full[i], compact[i], kids);
++        auto combine = [&](const vector<Alts> &parts) {
++            vector<pair<string, string>> combos = { { cond, "" } };
++            for (size_t i = 0; i < parts.size(); i++) {
++                vector<pair<string, string>> next;
++                for (auto &[c, text] : combos)
++                    for (auto &[w, s] : parts[i])
++                        next.emplace_back(And(c, w), cat(text, i ? ", " : "",
++                                                         XmlQuote(fs[i].Str("name")), ": ", s));
++                combos = std::move(next);
++                if (combos.size() > MAXCOMBOS) return false;
++            }
++            for (auto &[c, text] : combos) out += Display(cat(head, " {{ ", text, " }}"), c);
++            return true;
++        };
++        if (!combine(full)) combine(compact);
++    }
++
++    // A struct, a variant's payload or the globals block.
++    void Struct(const string &cname, const string &head, const vector<Json> &fs, const string &comment) {
++        if (!Open(cname, comment)) return;
++        string kids;
++        Fields(fs, "", "", head, kids);
++        if (!kids.empty()) Append(out, "    <Expand>\n", kids, "    </Expand>\n");
++        Close();
++    }
++
++    // A fixed-mode enum, {tag; union u}: its summaries per tag, the active
++    // variant's fields as children; then each variant's own payload type
++    // (E_g_V_p) the C declares.
++    void Enum(const Json &t, const set<string> &cstructs) {
++        auto cname = t.Str("c"), name = XmlQuote(t.Str("name"));
++        if (!Open(cname, cat("enum ", t.Str("name")))) return;
++        string kids;
++        for (auto &v : t.Arr("variants")) {
++            auto vn = v.Str("name");
++            auto cond = cat("tag == ", v.Get("tag") ? (int64_t)v.Get("tag")->num : 0);
++            Fields(v.Arr("fields"), cat("u.v_", vn, "_g."), cond, cat(name, ".", XmlQuote(vn)), kids);
++        }
++        out += Display(cat(name, " #{tag,d}"), "");   // A tag no variant has.
++        if (!kids.empty()) Append(out, "    <Expand>\n", kids, "    </Expand>\n");
++        Close();
++        for (auto &v : t.Arr("variants")) {
++            auto pc = cat(cname, "_", v.Str("name"), "_p");
++            if (!v.Arr("fields").empty() && cstructs.count(pc))
++                Struct(pc, cat(name, ".", XmlQuote(v.Str("name"))), v.Arr("fields"),
++                       cat(t.Str("name"), ".", v.Str("name")));
++        }
++    }
++};
++
++// The natvis for one program, from its debug map's JSON (DebugMap()) and
++// its C.
++inline string Natvis(const string &mapjson, const string &ctext) {
++    NatvisWriter w;
++    auto m = ParseJson(mapjson);
++    for (auto &t : m.Arr("types"))
++        if (!t.Str("c").empty()) w.cnames[t.Str("name")] = t.Str("c");
++    // The structs the C defines (`struct X {` on a line of its own) and the
++    // array typedefs above, one to a line.
++    set<string> cstructs;
++    vector<tuple<string, char, string, int>> arrays;
++    for (size_t p = 0; (p = ctext.find('\n', p)) != string::npos; p++) {
++        auto line = ctext.substr(p + 1, ctext.find('\n', p + 1) - p - 1);
++        if (line.compare(0, 7, "struct ") == 0 && NatvisWriter::Ends(line, " {")) {
++            cstructs.insert(line.substr(7, line.size() - 9));
++            continue;
++        }
++        if (line.compare(0, 17, "typedef struct { ") != 0 || line.back() != ';') continue;
++        auto close = line.rfind(" } ");
++        if (close == string::npos) continue;
++        auto name = line.substr(close + 3, line.size() - close - 4);
++        auto body = line.substr(17, close - 17);
++        auto numbered = name.size() > 1 && isdigit((unsigned char)name[1]);
++        auto kind = name.compare(0, 3, "sl_") == 0 ? 's' : numbered && name[0] == 'a' ? 'a'
++                  : numbered && name[0] == 'l' ? 'l' : 0;
++        if (!kind) continue;
++        if (kind == 's') {
++            auto star = body.find(" *data;");
++            if (star != string::npos) arrays.emplace_back(name, kind, body.substr(0, star), 0);
++            continue;
++        }
++        if (kind == 'l') {   // The length first: `uintK_t len; `.
++            auto semi = body.find("; ");
++            if (semi == string::npos) continue;
++            body = body.substr(semi + 2);
++        }
++        auto e = body.find(" e[");
++        if (e == string::npos) continue;
++        arrays.emplace_back(name, kind, body.substr(0, e), atoi(body.c_str() + e + 3));
++    }
++    w.Generic();
++    sort(arrays.begin(), arrays.end());
++    for (auto &[name, kind, elem, n] : arrays) w.Array(name, kind, elem, n);
++    for (auto &t : m.Arr("types")) {
++        auto c = t.Str("c");
++        if (c.empty() || !cstructs.count(c)) continue;   // Variable size: no C type.
++        if (t.Str("kind") == "struct")
++            w.Struct(c, XmlQuote(t.Str("name")), t.Arr("fields"), cat("struct ", t.Str("name")));
++        else
++            w.Enum(t, cstructs);
++    }
++    if (auto g = m.Get("globals"); g && !g->Arr("vars").empty())
++        w.Struct(g->Str("block").empty() ? string("gs_globals_t") : g->Str("block"), "globals",
++                 g->Arr("vars"), "the globals: dx gs_globals_main");
++    return cat("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n",
++               "<AutoVisualizer xmlns=\"http://schemas.microsoft.com/vstudio/debugger/natvis/2010\">\n",
++               w.out, "</AutoVisualizer>\n");
++}
++
++}  // namespace goose
+-- 
+2.50.1 (Apple Git-155)
+
