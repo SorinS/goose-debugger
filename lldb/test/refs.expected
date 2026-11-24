@@ -16,14 +16,14 @@ r_g: 0 children
 -- goose-bt 3
 * #0: refs`bump at refs.goose:11
   #1: refs`main at refs.goose:23
-  #2: refs`main at refs.c:2029
+  #2: refs`main at refs.c:2030
 -- goose-frame-format
 frame-format shows Goose names
 -- bt 3
 * thread #1, stop reason = breakpoint 1.1
   * frame #0: 0x_ refs`bump at refs.goose:11
     frame #1: 0x_ refs`main at refs.goose:23
-    frame #2: 0x_ refs`main at refs.c:2029
+    frame #2: 0x_ refs`main at refs.c:2030
 -- goose-frame-format off
 frame-format default
 @@ bump_g_2 refs.goose:11
@@ -42,14 +42,14 @@ r_g: 0 children
 -- goose-bt 3
 * #0: refs`bump at refs.goose:11
   #1: refs`main at refs.goose:23
-  #2: refs`main at refs.c:2029
+  #2: refs`main at refs.c:2030
 -- goose-frame-format
 frame-format shows Goose names
 -- bt 3
 * thread #1, stop reason = breakpoint 1.2
   * frame #0: 0x_ refs`bump at refs.goose:11
     frame #1: 0x_ refs`main at refs.goose:23
-    frame #2: 0x_ refs`main at refs.c:2029
+    frame #2: 0x_ refs`main at refs.c:2030
 -- goose-frame-format off
 frame-format default
 @@ main_g refs.goose:24

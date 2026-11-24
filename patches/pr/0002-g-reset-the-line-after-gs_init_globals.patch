@@ -1,0 +1,158 @@
+From 8dd84f765a0e7ac45beebe1fcd9ca60706a49f0b Mon Sep 17 00:00:00 2001
+From: SorinS <ssuciu@gmail.com>
+Date: Tue, 24 Nov 2026 09:06:29 +0000
+Subject: [PATCH] -g: reset the #line after gs_init_globals
+
+A global initializer with statements is generated under its Goose lines,
+but gs_init_globals ended with no LINE_RESET, so the last of those lines
+stayed in effect over gs_program_init and main: a breakpoint on it got
+locations in all three, and `b main` showed a Goose line. It now ends
+with one, as a function does.
+
+test/line_directives.py, run by the suite, generates every fixture's C
+under -g and fails where a gs_* function or main sits under a Goose
+#line. Before this change it reported the 11 fixtures with such
+initializers.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/codegen_emit.h      |  4 ++
+ test/line_directives.py | 89 +++++++++++++++++++++++++++++++++++++++++
+ test/run_tests.py       | 10 +++++
+ 3 files changed, 103 insertions(+)
+ create mode 100644 test/line_directives.py
+
+diff --git a/src/codegen_emit.h b/src/codegen_emit.h
+index 34915d1a..ea14645e 100644
+--- a/src/codegen_emit.h
++++ b/src/codegen_emit.h
+@@ -988,6 +988,10 @@ inline void CodeGen::EmitGlobalInit() {
+     code += decls;
+     code += body;
+     code += "}\n\n";
++    // As after a function: the initializers' statements were written under
++    // their Goose lines, and what follows (gs_program_init, main) is not.
++    if (linedirs) Append(code, LINE_RESET, "\n");
++    srcline = Line {};
+ }
+ 
+ // x, a pure expression, as a value of index or bound type t: checked below
+diff --git a/test/line_directives.py b/test/line_directives.py
+new file mode 100644
+index 00000000..4e115d41
+--- /dev/null
++++ b/test/line_directives.py
+@@ -0,0 +1,89 @@
++"""Under -g, the C of a Goose function is charged to its Goose lines by
++#line directives, and nothing else may be: the runtime's functions and the
++ones the code generator adds (gs_init_globals, gs_program_init, main, ...)
++must follow a #line back to the C file itself. Otherwise a breakpoint on a
++Goose line gets locations in them, and the debugger shows a Goose line in
++main.
++
++This check generates the C of every fixture under test/ with -g and reports
++each definition of a gs_* function or of main that sits under a Goose
++line."""
++import argparse
++import re
++import shutil
++import subprocess
++import sys
++import tempfile
++from concurrent.futures import ThreadPoolExecutor
++from pathlib import Path
++
++HERE = Path(__file__).resolve().parent
++sys.path.insert(0, str(HERE.parent / "scripts"))
++import toolchain as tc  # noqa: E402
++
++LINE = re.compile(r'#line \d+ "([^"]*)"')
++# A definition at the start of a line: `static void gs_init_globals(void) {`.
++DEF = re.compile(r"^[A-Za-z_][\w \*]*\b(gs_\w+|main)\s*\([^;]*\)\s*\{\s*$")
++
++
++def misplaced(c):
++    """The gs_* functions and main defined under a Goose #line in C."""
++    goose, found = False, []
++    for line in c.splitlines():
++        m = LINE.match(line)
++        if m:
++            goose = m.group(1).endswith(".goose")
++            continue
++        d = DEF.match(line)
++        if d and goose:
++            found.append(d.group(1))
++    return found
++
++
++def check_file(exe, f, root):
++    out = root / (f.stem + "-" + str(abs(hash(str(f)))) + ".c")
++    r = subprocess.run([str(exe), "-g", "-o", str(out), str(f)], capture_output=True,
++                       text=True, timeout=120)
++    if r.returncode != 0 or not out.exists():
++        return None, None   # A fixture that is meant not to compile.
++    bad = misplaced(out.read_text(encoding="utf-8", errors="replace"))
++    out.unlink()
++    rel = f.relative_to(HERE)
++    return rel, (f"{rel}: {', '.join(bad)} under a Goose #line" if bad else None)
++
++
++def check_line_directives(exe, base, jobs=8):
++    """Raises RuntimeError naming the fixtures whose C charges a gs_*
++    function or main to a Goose line; returns how many were checked."""
++    exe = Path(exe).resolve()
++    base = Path(base).resolve()
++    base.mkdir(parents=True, exist_ok=True)
++    root = Path(tempfile.mkdtemp(prefix="line-directives-", dir=base))
++    files = sorted(HERE.rglob("*.goose"))
++    try:
++        with ThreadPoolExecutor(jobs) as pool:
++            results = list(pool.map(lambda f: check_file(exe, f, root), files))
++    finally:
++        shutil.rmtree(root, ignore_errors=True)
++    bad = [m for _, m in results if m]
++    if bad:
++        raise RuntimeError(f"{len(bad)} fixtures:\n" + "\n".join(bad))
++    return sum(1 for rel, _ in results if rel)
++
++
++def main():
++    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
++    ap.add_argument("--exe", default=str(HERE.parent / "build" / ("goose" + tc.EXE_SUFFIX)))
++    ap.add_argument("-j", "--jobs", type=int, default=8)
++    args = ap.parse_args()
++    try:
++        n = check_line_directives(args.exe, tempfile.gettempdir(), args.jobs)
++    except RuntimeError as e:
++        print(e)
++        return 1
++    print(f"line directives: {n} fixtures, no gs_* function or main under a Goose line")
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/test/run_tests.py b/test/run_tests.py
+index 21139976..f221794e 100755
+--- a/test/run_tests.py
++++ b/test/run_tests.py
+@@ -2674,6 +2674,16 @@ def main():
+             r.fail("copy elision", str(e))
+     r.show_task(copy_elision)
+ 
++    def line_directives():
++        from line_directives import check_line_directives
++        try:
++            n = check_line_directives(exe, gendir)
++            r.ok(f"line directives: under -g, the C of {n} fixtures charges no gs_* function "
++                 "and not main to a Goose line")
++        except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:
++            r.fail("line directives", str(e))
++    r.show_task(line_directives)
++
+     def diagnostics_json():
+         from diagnostics_json import check_diagnostics_json
+         try:
+-- 
+2.50.1 (Apple Git-155)
+
