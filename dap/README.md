@@ -64,7 +64,7 @@ It adds these keys:
 |---|---|
 | `build` | `true`: run `goose build -g -o <program> <source>` before launching. Compiler output goes to the debug console; if the build fails, the launch fails with the compiler's last line. |
 | `source` | The `.goose` file to build. If `program` is not given, it defaults to the source's stem, in `cwd` or else beside the source. |
-| `goose` | The compiler (default `$GOOSE`, then `goose` on `PATH`). |
+| `goose` | The compiler (default `$GOOSE`, then `../bin/goose-debug` beside goose-dap, as in a snapshot, then `goose` on `PATH`). |
 | `buildArgs` | Extra compiler arguments, as a list (`["--include", "x.h"]`). |
 | `lldbDap` | The lldb-dap to run, for this session only. |
 | `gooseLldb` | Another `goose_lldb.py` to load (default `../lldb/goose_lldb.py`, or `$GOOSE_DAP_GOOSE_LLDB`). |

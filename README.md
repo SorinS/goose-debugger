@@ -64,6 +64,8 @@ patches for its author, against the goose.git commit each one names.
 - `tests/`: checks of the patched compiler: `line_directives.sh` through
   LLDB in batch mode, `backtrace.sh` for `goose run -g`.
 - `docs/`: the plan.
+- `scripts/make_snapshot.sh`: a point-in-time `goose-debug` in `dist/` (not
+  committed); see *Snapshots*.
 
 ## Trying the patches
 
@@ -82,6 +84,61 @@ Then, for any program:
 goose build -g -o prog prog.goose
 lldb -o 'b prog.goose:12' -o run ./prog
 ```
+
+## Snapshots
+
+An editor (the IDEA plugin, VS Code, Neovim) is best pointed at a snapshot:
+the compiler built from `debug1` together with the standard library and
+TinyCC files of the same commit, and this repo's `goose-dap` and debugger
+modules, in one directory that can live anywhere.
+
+```sh
+scripts/make_snapshot.sh [goose-worktree]     # default ~/Dev/Goose/goose-dbg1
+```
+
+builds the worktree (which must be clean) in its own `build-snapshot`
+directory and writes
+
+```
+dist/goose-debug-<date>-<debug1 sha>-<platform>/
+  bin/goose-debug     the compiler
+  bin/goose-dap       -> ../dap/goose-dap
+  bin/tcclib/         TinyCC's headers and libtcc1, for goose run --jit
+  stdlib/             the standard library of that commit
+  dap/                goose-dap (Python 3, standard library only)
+  lldb/, gdb/         goose_lldb.py, goose_gdb.py
+  VERSION             goose version, the debug1, goose-debugger and master
+                      commits, platform
+```
+
+goose-dap in a snapshot loads `../lldb/goose_lldb.py` and builds with
+`../bin/goose-debug`; only `lldb-dap` comes from the system (Xcode's
+Command Line Tools on macOS, LLVM's package on Linux), found as goose-dap
+always finds it.
+
+goose finds `stdlib/` above its executable and `tcclib/` beside it before
+the paths baked in when it was built, so the snapshot needs no `--stdlib`
+and no `GOOSE_STDLIB`. In the plugin, set the compiler to
+`.../bin/goose-debug`, the debug adapter to `.../bin/goose-dap`, and leave
+the standard library empty; the language server should use the same
+snapshot, so that it reads the same std as the debug build. A `--stdlib` pointing at a goose checkout breaks as soon as
+that checkout moves past the compiler (a std using syntax the compiler does
+not know). The script checks the result before printing its path: a JIT
+run, a `-g` build, the `#line` directives of that build naming the
+snapshot's own `std.goose`, and, where there is an `lldb-dap`, goose-dap's
+tests (`dap/test/run.py`) through the snapshot's own adapter and compiler,
+and packs `dist/<name>.tar.gz`. On Linux, build with clang and libc++
+linked in so the binary needs only glibc:
+
+```sh
+CC=clang-17 CXX=clang++-17 CXXFLAGS=-stdlib=libc++ \
+LDFLAGS="-pthread -stdlib=libc++ -static-libstdc++" scripts/make_snapshot.sh
+```
+
+Windows (MSVC) is staged by hand for now, in the same layout but with
+`bin\goose-debug.exe`, `bin\goose-dap.cmd` (runs `..\dap\goose_dap.py`),
+`dap\goose-dap.cmd` and `natvis\` in place of `gdb/`, zipped with `tar -a`
+(PowerShell 5's `Compress-Archive` writes `\` into the zip's paths).
 
 ## Platforms
 

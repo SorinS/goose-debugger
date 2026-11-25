@@ -7,7 +7,8 @@ usage: GOOSE=/path/to/goose dap/test/run.py [-k NAME] [-v] [--keep]
 
 GOOSE is a compiler with -g (patches 0001-0007). LLDB_DAP (or
 GOOSE_DAP_LLDB_DAP) picks the lldb-dap goose-dap runs. GOOSE_DAP_WORK keeps
-the binaries and logs in a directory of your choice.
+the binaries and logs in a directory of your choice. GOOSE_DAP_ADAPTER
+tests another copy of goose-dap (a snapshot's bin/goose-dap).
 """
 
 import argparse
@@ -26,7 +27,8 @@ REPO = os.path.dirname(DAP)
 sys.path.insert(0, HERE)
 from dapclient import Dap, AdapterExited  # noqa: E402
 
-GOOSE_DAP = os.path.join(DAP, "goose-dap")
+# GOOSE_DAP_ADAPTER: another copy of goose-dap to test (a snapshot's).
+GOOSE_DAP = os.environ.get("GOOSE_DAP_ADAPTER") or os.path.join(DAP, "goose-dap")
 SAMPLES = {
     "area": os.path.join(REPO, "tests", "area.goose"),
     "structs": os.path.join(REPO, "lldb", "test", "structs.goose"),
@@ -71,7 +73,8 @@ def eq(got, want, what):
 # ever killed (killing csrss.exe stops the machine).
 WINDOWS = os.name == "nt"
 EXE = ".exe" if WINDOWS else ""
-ADAPTER = [sys.executable, "-u", os.path.join(DAP, "goose_dap.py")] if WINDOWS else [GOOSE_DAP]
+ADAPTER = [sys.executable, "-u", os.path.join(os.path.dirname(os.path.realpath(GOOSE_DAP)), "goose_dap.py")] \
+    if WINDOWS else [GOOSE_DAP]
 KILLABLE = {"python.exe", "lldb.exe", "lldb-dap.exe", "lldb-server.exe", "conhost.exe"}
 
 

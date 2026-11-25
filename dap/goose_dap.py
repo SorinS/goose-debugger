@@ -46,6 +46,9 @@ import traceback
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 GOOSE_LLDB = os.path.normpath(os.path.join(HERE, "..", "lldb", "goose_lldb.py"))
+# The compiler of a snapshot (scripts/make_snapshot.sh), or of this repo's
+# bin/: the goose-debug goose-dap was shipped with.
+BESIDE_GOOSE = os.path.normpath(os.path.join(HERE, "..", "bin", "goose-debug" + (".exe" if os.name == "nt" else "")))
 HELPER = os.path.join(HERE, "goose_dap_lldb.py")
 DEFAULT_LLDB_DAP = "/Library/Developer/CommandLineTools/usr/bin/lldb-dap"
 
@@ -753,7 +756,8 @@ class Proxy:
         return True
 
     def build(self, goose, source, program, extra, cwd):
-        goose = goose or os.environ.get("GOOSE") or shutil.which("goose") or "goose"
+        goose = goose or os.environ.get("GOOSE") or (BESIDE_GOOSE if os.access(BESIDE_GOOSE, os.X_OK) else None) \
+            or shutil.which("goose") or "goose"
         if not source:
             return False, "build: true needs a \"source\" .goose file"
         if not program:
@@ -1381,6 +1385,7 @@ class Proxy:
             fn = info.get("fn")
             scope = self.gmap.locals_at(fn, info.get("line")) if fn is not None else None
             by_c = {l["c"]: l for l in scope.values()} if scope is not None else None
+            declared = {}        # Goose name -> its declaration line, from the map
             for v in vs:
                 c = v.get("name") or ""
                 if c.startswith("("):
@@ -1391,16 +1396,25 @@ class Proxy:
                     if l is None:
                         continue
                     gname, gtype = l["name"], l.get("type")
+                    try:
+                        declared[gname] = int(l.get("line", 0))
+                    except (TypeError, ValueError):
+                        declared[gname] = 0
                 else:
                     if c.startswith("gs_") or not _NAME_RE.match(c):
                         continue
                     gname, gtype = goose_name(c), None
                 out.append(self.goose_var(v, gname, gname, gtype))
                 names[gname] = c
-            # lldb-dap's order is the C's: parameters first, then locals as
-            # declared. (Return Value) goes last.
-            out = [v for v in out if not (v.get("name") or "").startswith("(")] + \
-                  [v for v in out if (v.get("name") or "").startswith("(")]
+            # In the order of the Goose declarations, as the map gives them
+            # (parameters, on the function's line, first): lldb-dap gives the
+            # C's, which a PDB need not keep (MSVC listed a later struct local
+            # first). Locals of one line keep lldb-dap's order; without a map,
+            # all do. (Return Value) goes last.
+            vals = [v for v in out if not (v.get("name") or "").startswith("(")]
+            if declared:
+                vals = [v for _, _, v in sorted((declared.get(v.get("name"), 0), i, v) for i, v in enumerate(vals))]
+            out = vals + [v for v in out if (v.get("name") or "").startswith("(")]
         elif ctx["kind"] == "child":
             prefix, gtype = ctx.get("prefix"), ctx.get("gtype")
             fields = self.gmap.fields_of(gtype) if gtype else None
