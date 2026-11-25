@@ -100,7 +100,7 @@ builds the worktree (which must be clean) in its own `build-snapshot`
 directory and writes
 
 ```
-dist/goose-debug-<date>-<debug1 sha>-<platform>/
+dist/goose-debug-<goose-debugger version>-<goose master commit>-<platform>/
   bin/goose-debug     the compiler
   bin/goose-dap       -> ../dap/goose-dap
   bin/tcclib/         TinyCC's headers and libtcc1, for goose run --jit

@@ -73,8 +73,10 @@ def eq(got, want, what):
 # ever killed (killing csrss.exe stops the machine).
 WINDOWS = os.name == "nt"
 EXE = ".exe" if WINDOWS else ""
+# On Windows the Python adapter runs through Python (its wrappers are a sh
+# script and a .cmd); a native adapter (goose-dap.exe) runs as it is.
 ADAPTER = [sys.executable, "-u", os.path.join(os.path.dirname(os.path.realpath(GOOSE_DAP)), "goose_dap.py")] \
-    if WINDOWS else [GOOSE_DAP]
+    if WINDOWS and not GOOSE_DAP.lower().endswith(".exe") else [GOOSE_DAP]
 KILLABLE = {"python.exe", "lldb.exe", "lldb-dap.exe", "lldb-server.exe", "conhost.exe"}
 
 

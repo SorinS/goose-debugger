@@ -4,7 +4,7 @@
 # DAP adapter and debugger modules, in one directory that needs no --stdlib,
 # no GOOSE_STDLIB and no build tree:
 #
-#   dist/goose-debug-<date>-<debug1 sha>-<platform>/
+#   dist/goose-debug-<goose-debugger version>-<goose master commit>-<platform>/
 #     bin/goose-debug     the compiler
 #     bin/goose-dap       -> ../dap/goose-dap
 #     bin/tcclib/         TinyCC's headers and libtcc1 (goose run --jit)
@@ -22,7 +22,7 @@
 #
 #   scripts/make_snapshot.sh [goose-worktree]     (default ~/Dev/Goose/goose-dbg1)
 #
-# The worktree must be clean: the snapshot is named after its commit. macOS
+# The worktree must be clean: VERSION names its commit. macOS
 # and Linux; Windows builds are made by hand for now.
 set -euo pipefail
 
@@ -34,7 +34,6 @@ if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
     echo "make_snapshot: $src has uncommitted changes" >&2
     exit 1
 fi
-sha=$(git rev-parse --short HEAD)
 branch=$(git branch --show-current)
 base=$(git merge-base HEAD origin/master 2>/dev/null || git merge-base HEAD master)
 case "$(uname -s)-$(uname -m)" in
@@ -44,7 +43,11 @@ case "$(uname -s)-$(uname -m)" in
     Linux-aarch64) platform=linux-arm64 ;;
     *)             platform=$(uname -s)-$(uname -m) ;;
 esac
-name=goose-debug-$(date +%Y%m%d)-$sha-$platform
+# Named for what a user matches it against: this repo's version (its tag,
+# v0.2.0, or v0.2.0-3-g1a2b3c4 after it) and the goose master commit debug1
+# sits on. The debug1 commit itself is in VERSION.
+version=$(git -C "$here" describe --tags --always)
+name=goose-debug-$version-$(git rev-parse --short=8 "$base")-$platform
 out=$here/dist/$name
 
 # Its own build directory, so the one used day to day is left alone.
