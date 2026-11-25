@@ -47,8 +47,10 @@ patches for its author, against the goose.git commit each one names.
 - `dap/`: `goose-dap`, a Debug Adapter Protocol proxy in front of LLDB's
   `lldb-dap` that makes an editor's debugger Goose-level: frame names,
   only the Goose locals in scope, Goose watch expressions and function
-  breakpoints, and a "Goose runtime errors" exception filter. The VS Code
-  extension uses it as of patch 0008.
+  breakpoints, and a "Goose runtime errors" exception filter. Written in
+  Goose (`dap/src/`, built by `dap/scripts/build.sh`) and needing only
+  lldb-dap; up to v0.2.0 it was Python. The VS Code extension uses it as of
+  patch 0008.
 - `gdb/`: `goose_gdb.py`, gdb pretty-printers, `goose-locals`, `goose-bt`,
   `goose-globals`, `goose-as` and a frame filter for Goose names in `bt`,
   and its tests.
@@ -89,8 +91,9 @@ lldb -o 'b prog.goose:12' -o run ./prog
 
 An editor (the IDEA plugin, VS Code, Neovim) is best pointed at a snapshot:
 the compiler built from `debug1` together with the standard library and
-TinyCC files of the same commit, and this repo's `goose-dap` and debugger
-modules, in one directory that can live anywhere.
+TinyCC files of the same commit, this repo's `goose-dap` built by that
+compiler, and the debugger modules, in one directory that can live
+anywhere.
 
 ```sh
 scripts/make_snapshot.sh [goose-worktree]     # default ~/Dev/Goose/goose-dbg1
@@ -102,19 +105,21 @@ directory and writes
 ```
 dist/goose-debug-<goose-debugger version>-<goose master commit>-<platform>/
   bin/goose-debug     the compiler
-  bin/goose-dap       -> ../dap/goose-dap
+  bin/goose-dap       the DAP adapter, a native program
   bin/tcclib/         TinyCC's headers and libtcc1, for goose run --jit
   stdlib/             the standard library of that commit
-  dap/                goose-dap (Python 3, standard library only)
   lldb/, gdb/         goose_lldb.py, goose_gdb.py
   VERSION             goose version, the debug1, goose-debugger and master
                       commits, platform
 ```
 
 goose-dap in a snapshot loads `../lldb/goose_lldb.py` and builds with
-`../bin/goose-debug`; only `lldb-dap` comes from the system (Xcode's
-Command Line Tools on macOS, LLVM's package on Linux), found as goose-dap
-always finds it.
+`../bin/goose-debug`. The one thing that comes from the system is
+`lldb-dap` (Xcode's Command Line Tools on macOS, LLVM's package on Linux
+and Windows), found as goose-dap always finds it; goose_lldb.py runs in
+lldb's own Python (on Windows, LLVM's lldb wants a Python installed for
+that, and without one values show as their C). Building the snapshot
+fetches gslib for goose-dap the first time.
 
 goose finds `stdlib/` above its executable and `tcclib/` beside it before
 the paths baked in when it was built, so the snapshot needs no `--stdlib`
@@ -136,9 +141,10 @@ LDFLAGS="-pthread -stdlib=libc++ -static-libstdc++" scripts/make_snapshot.sh
 ```
 
 Windows (MSVC) is staged by hand for now, in the same layout but with
-`bin\goose-debug.exe`, `bin\goose-dap.cmd` (runs `..\dap\goose_dap.py`),
-`dap\goose-dap.cmd` and `natvis\` in place of `gdb/`, zipped with `tar -a`
-(PowerShell 5's `Compress-Archive` writes `\` into the zip's paths).
+`bin\goose-debug.exe`, `bin\goose-dap.exe` (`goose-debug build` of
+`dap\src\main.goose`) and `natvis\` in place of `gdb/`, zipped with
+`tar -a` (PowerShell 5's `Compress-Archive` writes `\` into the zip's
+paths).
 
 ## Platforms
 
@@ -186,7 +192,7 @@ Windows (MSVC) is staged by hand for now, in the same layout but with
    values decoded, tag names, `T&`/`T?`/relative references and `bool`.
    With 0007 also globals (`goose-globals`), live lengths while a resizable
    grows, and function-value instances (`twice<F=inc>`). The `goose dap`
-   proxy is `dap/goose-dap` (18 DAP tests on macOS);
+   proxy is `dap/` (18 DAP tests, on macOS, Linux and Windows);
    `docs/idea_integration.md` lists what an IDE needs from it.
 4. Backtraces in `goose run`: done as draft patch 0004 (also on
    `debug1`). Tested on macOS arm64 only; `tests/backtrace.sh` should be

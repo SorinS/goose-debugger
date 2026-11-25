@@ -12,10 +12,13 @@ must do for the IDE"), except where **Limits** below says otherwise.
 editor  <--DAP over stdio-->  goose-dap  <--DAP over pipes-->  lldb-dap  -->  program
 ```
 
-It needs Python 3 (standard library only), an `lldb-dap` (on macOS the
-Command Line Tools have one), and a program built with `goose build -g`
-(patches 0001-0007). That build writes `<stem>.debug.json` beside the
-generated C, and goose-dap reads it.
+goose-dap is written in Goose and built as a native program. Besides
+itself it needs only an `lldb-dap` (on macOS the Command Line Tools have
+one), into whose own Python it loads `../lldb/goose_lldb.py`, the value
+formatters, and a program built with `goose build -g` (patches 0001-0007).
+That build writes `<stem>.debug.json` beside the generated C, and goose-dap
+reads it. Up to goose-debugger v0.2.0 goose-dap was a Python program; see
+[From the Python adapter](#from-the-python-adapter).
 
 The oldest adapter it is tested with is `lldb-vscode` 16 (LLVM 16; LLVM
 18 renamed it `lldb-dap`). On Linux, LLVM 18 or later is the one to use:
@@ -25,16 +28,54 @@ apt.llvm.org and the LLVM releases have newer ones. See
 
 ## Files
 
-- `goose-dap`: the command an editor runs. A shell script that runs
-  `goose_dap.py` with `python3 -u` and resolves symlinks, so it can be linked
-  into `PATH`.
-- `goose_dap.py`: the proxy.
-- `goose_dap_lldb.py`: a few functions that run inside lldb-dap (where the
-  maps are, the line table of a file, the message of a runtime error).
-  goose-dap loads this module, and `../lldb/goose_lldb.py`, into lldb-dap
-  through `initCommands`. You do not load either one yourself.
+- `src/`: the adapter, in Goose.
+  - `main.goose`: the command line and start-up.
+  - `framing.goose`: Content-Length framing, and the worker threads that
+    read the editor, lldb-dap's stdout and stderr, and SIGINT.
+  - `proxy.goose`: the state, the log, writing to the editor and to
+    lldb-dap, starting and stopping lldb-dap, the proxy's own requests, and
+    the main loop.
+  - `launch.goose`: request dispatch, initialize, launch/attach,
+    `build: true`, finding and respawning lldb-dap.
+  - `breakpoints.goose`: function breakpoints, the runtime-error filter,
+    breakpointLocations.
+  - `frames.goose`: stackTrace. `variables.goose`: scopes, variables,
+    Globals, setVariable, exceptionInfo. `evaluate.goose`: evaluate, and
+    Goose expressions rewritten to C. `events.goose`: lldb-dap's responses
+    and events on their way back.
+  - `lldb.goose`: what the adapter asks LLDB (see
+    [What it asks LLDB](#what-it-asks-lldb)), and loading the debug maps.
+    `gmap.goose`: queries on the debug map.
+  - `names.goose`: Goose names and types as C spells them, tokens, value
+    cleaning, paths. `jsonw.goose`: writing a parsed JSON tree back out,
+    with members dropped, replaced or added. `store.goose`: the per-stop
+    tables (frames, variablesReferences, runtime errors) as keyed JSON text.
+- `scripts/build.sh`: builds `build/bin/goose-dap` and copies
+  `../lldb/goose_lldb.py` to `build/lldb/`.
 - `test/`: the tests (`run.py`), their DAP client (`dapclient.py`) and two
-  samples (`progs/`).
+  samples (`progs/`). They need Python 3; goose-dap does not.
+
+## Building
+
+```
+dap/scripts/build.sh [compiler]
+```
+
+The compiler is the first argument, else `$GOOSE`, else this repo's
+`bin/goose-debug`, else `goose-debug` or `goose` on `PATH`; building the
+adapter needs no `-g`. The program uses threads, so it is built with
+`goose build` (the TinyCC JIT cannot run it). It uses gslib (`sys`,
+`sys.process`, `sys.unix`, `regex`), fetched at v0.9.2 on the first build,
+and std, and has no C of its own. The result has a snapshot's layout, so it
+runs with no environment variable set:
+
+```
+dap/build/bin/goose-dap
+dap/build/lldb/goose_lldb.py
+```
+
+`$OUT` builds elsewhere; `scripts/make_snapshot.sh` builds a snapshot's
+`bin/goose-dap` this way, with the snapshot's own compiler.
 
 ## Running it
 
@@ -42,7 +83,7 @@ goose-dap speaks DAP on stdin and stdout, with `Content-Length` framing. It
 assumes no TTY and writes nothing else to stdout. Options:
 
 ```
-goose-dap [--lldb-dap PATH] [--log FILE]
+goose-dap [--lldb-dap PATH] [--log FILE] [--version] [-h]
 ```
 
 - **lldb-dap.** It uses the first of: the launch configuration's `lldbDap`,
@@ -53,6 +94,10 @@ goose-dap [--lldb-dap PATH] [--log FILE]
   Ubuntu's LLVM packages).
 - **Logging.** `--log FILE` or `GOOSE_DAP_LOG=FILE` logs every message in
   both directions, and lldb-dap's stderr.
+- **goose_lldb.py.** `$GOOSE_DAP_LLDB_DIR` is the directory that holds it;
+  the default is `../lldb/` beside the executable, with symbolic links
+  resolved. `$GOOSE_DAP_GOOSE_LLDB` (a file) and the launch key `gooseLldb`
+  override it.
 
 ### Launch configuration
 
@@ -72,7 +117,7 @@ It adds these keys:
 | `showRuntimeFrames` | Default `false`. `true` keeps `gs_*` frames in the stack, marked subtle. |
 
 goose-dap puts its own `initCommands` before yours: it imports
-`goose_lldb.py` and `goose_dap_lldb.py`, and sets
+`goose_lldb.py`, and sets
 `target.process.thread.step-avoid-regexp` to `^(std::|gs_)`, so that step in
 goes over the runtime's helpers (checked arithmetic, pushes) and does not
 enter `goose_runtime.c`.
@@ -188,8 +233,7 @@ Messages not listed here pass through unchanged. Frame ids and
 `variablesReference`s are lldb-dap's own and are never renumbered, so they
 stay consistent. Request and response `seq`s are renumbered in both
 directions, which lets goose-dap send requests of its own (`stackTrace`,
-`variables`, and repl `script` calls into `goose_dap_lldb.py`) while it
-handles the client's.
+`variables`, and repl LLDB commands) while it handles the client's.
 
 **initialize.** lldb-dap's C++, Objective-C and Swift exception filters are
 replaced by one, `goose_runtime` ("Goose runtime errors", on by default).
@@ -197,8 +241,8 @@ replaced by one, `goose_runtime` ("Goose runtime errors", on by default).
 would be translated.
 
 **initialized** (event). goose-dap holds it back until it has asked lldb-dap
-where the maps are (`goose_dap_lldb.info()`, with the same rules as
-goose_lldb.py: beside each compile unit's `.c`, and not older than it).
+where the maps are (`image lookup -v -n main`, with the same rules as
+goose_lldb.py: beside the compile unit's `.c`, and not older than it).
 Every breakpoint request from the client comes after this point, so the map
 is already loaded when they arrive. If LLDB cannot tell, the fallback is the
 newest `~/.goose/build/prog/<stem>-*/<stem>.debug.json`.
@@ -300,8 +344,8 @@ if any instance is, with the message "N instances". `breakpoint` events and
 **breakpointLocations.** goose-dap always offers it. lldb-dap 21 returns an
 empty list; lldb-dap 18 and lldb-vscode 16 do not have the request (and exit
 on a request they do not know), so goose-dap does not send it to them. Either
-way goose-dap answers from LLDB's line table for that file (`goose_dap_lldb.lines`), the
-lines a breakpoint binds to: for `area.goose` 1–12, the lines 1, 2, 3, 6, 7,
+way goose-dap answers from LLDB's line table for that file
+(`image dump line-table`), the lines a breakpoint binds to: for `area.goose` 1–12, the lines 1, 2, 3, 6, 7,
 8, 9 and 11.
 
 **setExceptionBreakpoints / runtime errors.** Every Goose runtime error (a
@@ -334,9 +378,11 @@ messages) is cleared.
 ## Tests
 
 ```
+dap/scripts/build.sh                              # the adapter under test
 GOOSE=/path/to/goose-debug dap/test/run.py        # all
 GOOSE=… dap/test/run.py -k runtime_error -v       # some
 GOOSE_DAP_WORK=dir GOOSE=… dap/test/run.py        # keep binaries and logs in dir
+GOOSE_DAP_ADAPTER=…/bin/goose-dap GOOSE=… dap/test/run.py   # another adapter (a snapshot's)
 ```
 
 Each test builds its sample with `goose build -g`, runs goose-dap over pipes
@@ -366,11 +412,13 @@ through `test/dapclient.py`, and checks what a client sees:
 Every test checks at the end that goose-dap, lldb-dap and the debuggee have
 exited. Any that are left are killed by PID, and the test fails.
 
-Tested (18/18 each) on macOS arm64 with Apple lldb-dap
-`lldb-2100.0.17.203` (LLVM 21) and the goose-debug compiler of goose.git
-`debug1` (patches 0001-0007); and on Linux x86_64 (Ubuntu 20.04, gcc 9.4,
-DWARF 4, `debug1` at 0007) with `lldb-vscode-16` (16.0.6) and `lldb-dap`
-18.1.8 (focal-updates' `lldb-18`).
+The Goose adapter passes 18/18 on macOS arm64 with Apple lldb-dap
+`lldb-2100.0.17.203` (LLVM 21), on Linux x86_64 (Ubuntu 20.04) with
+`lldb-vscode-16`, and on Windows x64 (MSVC, PDBs) with LLVM's
+`lldb-dap.exe`, each built by that platform's goose-debug (`debug1` on
+goose master 1838de45). The Python adapter it replaced passed the same 18
+on macOS, on Linux with `lldb-vscode-16` and `lldb-dap` 18.1.8, and on
+Windows.
 
 ## Adapter versions
 
@@ -392,8 +440,8 @@ client sees from lldb-dap 21.
 `MightHaveChildren()` asks goose_lldb.py's synthetic provider
 (`GooseSynth.has_children`) before the provider's `update()` has run, and it
 answers from its still-empty child list. So `u.pos` and a resizable listed
-before its first push cannot be expanded. `goose_dap_lldb.py` patches
-`has_children` when it loads; the change goose_lldb.py needs is below.
+before its first push cannot be expanded. goose_lldb.py's `has_children`
+runs `update()` first, which fixes it (see below).
 
 ## Limits
 
@@ -419,10 +467,10 @@ before its first push cannot be expanded. `goose_dap_lldb.py` patches
 - **Runtime-error stops** also catch a contained worker's abort, which the
   program may expect, and `gs_panic`.
 - **Internal requests block.** goose-dap handles one client request at a
-  time and waits (up to 15 s) for the requests it makes of its own. A
-  `breakpointLocations` for a new file while the program runs asks LLDB's
-  line table through a repl `script`; if lldb-dap defers that until the
-  next stop, the client waits until the timeout.
+  time and waits (up to 15 s, less if lldb-dap exits) for the requests it
+  makes of its own. A `breakpointLocations` for a new file while the
+  program runs asks LLDB's line table through a repl command; if lldb-dap
+  defers that until the next stop, the client waits until the timeout.
 - **stopOnEntry.** lldb-dap 21 reports the stop at entry as `exception`;
   goose-dap reports it as `entry`. The stack is then dyld's alone, shown
   subtle.
@@ -440,5 +488,50 @@ fields are typed along the expression path from `gs_globals_main`
 (`pool[1].v`); a C child name (`s_g.items_g`, `r_g->tag_g`) finds the child
 the map named in Goose; and `GooseSynth.has_children` runs `update()`
 first, so lldb-dap 18 and lldb-vscode 16 offer to expand a value whose
-children are only known then. `goose_dap_lldb.py`'s `_patch_has_children`
-stays as a fallback for an older goose_lldb.py given with `gooseLldb`.
+children are only known then. (The Python adapter also patched
+`has_children` as a fallback for an older goose_lldb.py given with
+`gooseLldb`; the Goose adapter does not.)
+
+## What it asks LLDB
+
+goose-dap sends plain LLDB commands as repl evaluations, with the command
+escape prefix (`` ` `` unless the launch sets `commandEscapePrefix`), and
+reads their text; it also uses ordinary DAP requests. The Python adapter
+had a module of its own inside lldb-dap for this, `goose_dap_lldb.py`.
+
+| What | How |
+|---|---|
+| The debug maps | `image lookup -v -n main`: its `CompileUnit: … file = "…/<stem>.c"` is the program's generated C, which holds the C `main`. The map is `<stem>.debug.json` beside it, skipped if older than the `.c`, as goose_lldb.py does. Failing that, the newest `GOOSE_HOME/build/prog/<stem>-*/<stem>.debug.json`. `version` gives the LLDB version for the log. |
+| A file's lines that have code | `image dump line-table "<cu>.c"` for each of those compile units. An entry reads `0x…: <file>:<line>[:<column>]`; the entries whose file is the one asked for count (the same text, the same apart from case and separators on Windows, or the same real path). Cached per file. |
+| A runtime error's message and place | DAP `stackTrace` (16 frames) finds the `gs_fail` or `gs_panic` frame; `frame variable msg len file line` in it (just `msg` for `gs_panic`) gives the arguments; gs_fail's message bytes come from `memory read --force -s 1 -f x -c <len> <msg>`, and `file` and gs_panic's `msg` from LLDB's C-string summary. |
+
+## From the Python adapter
+
+goose-debugger v0.2.0 shipped goose-dap as `goose_dap.py` (Python 3) with
+`goose_dap_lldb.py` loaded into lldb-dap. The Goose adapter is a port of
+it, with the same command line, environment variables, launch and attach
+keys, rewrites and lldb-dap discovery, and passes the same tests. Where it
+differs:
+
+- `initCommands` imports one script (goose_lldb.py) instead of two.
+- The maps and line tables come from the compile units that hold a C
+  `main`, the program's generated C; the Python helper looked at every `.c`
+  compile unit of every module. That matters only for a map beside C
+  without `main` (a shared library built from Goose), which is found only
+  through the `GOOSE_HOME` fallback.
+- The runtime error's file name, and a `gs_panic` message, are read through
+  LLDB's string summary, which stops at `target.max-string-summary-length`
+  (1024 by default); Python read up to 4096 bytes. A `gs_fail` message is
+  read whole, and its bytes are passed on as they are.
+- Messages are written compactly, and non-ASCII text stays UTF-8 (Python
+  wrote `\uXXXX` escapes). A member the proxy replaces moves to the end of
+  its object. The log has the same entries, with each message's own JSON
+  text.
+- Malformed input takes a handler's no-match path; Python passed a request
+  on untouched when a handler raised.
+- If lldb-dap exits while the proxy waits for an answer of its own, the
+  wait ends at once (Python waited out 15 s), and lldb-dap is reaped.
+- A header block without a Content-Length is passed over; Python's reader
+  took it as the end of its input.
+- On Windows, Ctrl-C ends the adapter outright: its SIGINT and SIGPIPE
+  handling is POSIX's. Editors stop an adapter through DAP.

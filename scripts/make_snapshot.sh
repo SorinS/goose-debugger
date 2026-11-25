@@ -6,19 +6,19 @@
 #
 #   dist/goose-debug-<goose-debugger version>-<goose master commit>-<platform>/
 #     bin/goose-debug     the compiler
-#     bin/goose-dap       -> ../dap/goose-dap
+#     bin/goose-dap       the DAP adapter (dap/, built by that compiler)
 #     bin/tcclib/         TinyCC's headers and libtcc1 (goose run --jit)
 #     stdlib/             found as bin/../stdlib
-#     dap/                goose-dap (Python 3; runs the system's lldb-dap)
 #     lldb/, gdb/         goose_lldb.py, goose_gdb.py
 #     VERSION
 #
 # goose looks for stdlib/ above its executable and for tcclib/ beside it
 # before the paths CMake baked in (StdlibDirs, JitLibPath), so the directory
-# can be moved anywhere. goose-dap finds goose_lldb.py at ../lldb and builds
-# with ../bin/goose-debug. Point the IDEA plugin's compiler at
-# bin/goose-debug, its adapter at bin/goose-dap, and leave its standard
-# library setting empty. lldb-dap itself is the system's (Xcode's or LLVM's).
+# can be moved anywhere. goose-dap, a native program, finds goose_lldb.py at
+# ../lldb and builds with ../bin/goose-debug. Point the IDEA plugin's
+# compiler at bin/goose-debug, its adapter at bin/goose-dap, and leave its
+# standard library setting empty. lldb-dap itself is the system's (Xcode's
+# or LLVM's); it is all the debugger needs besides this directory.
 #
 #   scripts/make_snapshot.sh [goose-worktree]     (default ~/Dev/Goose/goose-dbg1)
 #
@@ -66,12 +66,17 @@ cp "$build/goose" "$out/bin/goose-debug"
 cp -R "$build/tcclib" "$out/bin/tcclib"
 # The committed standard library only, not whatever else lies in the tree.
 git -C "$src" archive HEAD stdlib | tar -x -C "$out"
-# The debugger side, from this repo as it is (VERSION says if it has changes).
-mkdir -p "$out/dap" "$out/lldb" "$out/gdb"
-cp "$here"/dap/{goose-dap,goose_dap.py,goose_dap_lldb.py,README.md} "$out/dap/"
-cp "$here"/lldb/{goose_lldb.py,README.md} "$out/lldb/"
+# The debugger side, from this repo as it is (VERSION says if it has changes):
+# goose-dap built by the snapshot's own compiler (dap/scripts/build.sh puts
+# bin/goose-dap and lldb/goose_lldb.py in place), and the modules' READMEs.
+if ! OUT="$out" "$here/dap/scripts/build.sh" "$out/bin/goose-debug" > "$build/goose-dap.log" 2>&1; then
+    tail -n 30 "$build/goose-dap.log" >&2
+    echo "make_snapshot: goose-dap's build failed (all of it in $build/goose-dap.log)" >&2
+    exit 1
+fi
+mkdir -p "$out/gdb"
+cp "$here/lldb/README.md" "$out/lldb/"
 cp "$here"/gdb/{goose_gdb.py,README.md} "$out/gdb/"
-ln -s ../dap/goose-dap "$out/bin/goose-dap"
 dbg=$(git -C "$here" rev-parse --short HEAD)
 if [ -n "$(git -C "$here" status --porcelain --untracked-files=no -- dap lldb gdb)" ]; then
     dbg="$dbg + local changes"

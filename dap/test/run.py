@@ -7,8 +7,9 @@ usage: GOOSE=/path/to/goose dap/test/run.py [-k NAME] [-v] [--keep]
 
 GOOSE is a compiler with -g (patches 0001-0007). LLDB_DAP (or
 GOOSE_DAP_LLDB_DAP) picks the lldb-dap goose-dap runs. GOOSE_DAP_WORK keeps
-the binaries and logs in a directory of your choice. GOOSE_DAP_ADAPTER
-tests another copy of goose-dap (a snapshot's bin/goose-dap).
+the binaries and logs in a directory of your choice. The adapter tested is
+dap/build/bin/goose-dap (dap/scripts/build.sh); GOOSE_DAP_ADAPTER tests
+another (a snapshot's bin/goose-dap).
 """
 
 import argparse
@@ -28,7 +29,8 @@ sys.path.insert(0, HERE)
 from dapclient import Dap, AdapterExited  # noqa: E402
 
 # GOOSE_DAP_ADAPTER: another copy of goose-dap to test (a snapshot's).
-GOOSE_DAP = os.environ.get("GOOSE_DAP_ADAPTER") or os.path.join(DAP, "goose-dap")
+GOOSE_DAP = os.environ.get("GOOSE_DAP_ADAPTER") or \
+    os.path.join(DAP, "build", "bin", "goose-dap" + (".exe" if os.name == "nt" else ""))
 SAMPLES = {
     "area": os.path.join(REPO, "tests", "area.goose"),
     "structs": os.path.join(REPO, "lldb", "test", "structs.goose"),
@@ -63,9 +65,9 @@ def eq(got, want, what):
         raise Fail("%s: got %r, want %r" % (what, got, want))
 
 
-# ---- Windows: the adapter run through Python (goose-dap is a sh script),
-# executables named .exe, and processes listed, probed and killed through
-# the Win32 API (os.kill(pid, 0) there sends a Ctrl-C to a console group).
+# ---- Windows: executables named .exe, and processes listed, probed and
+# killed through the Win32 API (os.kill(pid, 0) there sends a Ctrl-C to a
+# console group).
 # A Windows process keeps its parent's pid after the parent exits, and pids
 # are soon reused: csrss.exe and wininit.exe name a long-gone smss.exe, whose
 # pid the adapter may have now. So a child counts only if it started after
@@ -73,11 +75,8 @@ def eq(got, want, what):
 # ever killed (killing csrss.exe stops the machine).
 WINDOWS = os.name == "nt"
 EXE = ".exe" if WINDOWS else ""
-# On Windows the Python adapter runs through Python (its wrappers are a sh
-# script and a .cmd); a native adapter (goose-dap.exe) runs as it is.
-ADAPTER = [sys.executable, "-u", os.path.join(os.path.dirname(os.path.realpath(GOOSE_DAP)), "goose_dap.py")] \
-    if WINDOWS and not GOOSE_DAP.lower().endswith(".exe") else [GOOSE_DAP]
-KILLABLE = {"python.exe", "lldb.exe", "lldb-dap.exe", "lldb-server.exe", "conhost.exe"}
+ADAPTER = [GOOSE_DAP]
+KILLABLE = {"goose-dap.exe", "lldb.exe", "lldb-dap.exe", "lldb-server.exe", "conhost.exe"}
 
 
 def _win_processes():
