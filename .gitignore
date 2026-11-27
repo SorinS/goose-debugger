@@ -3,3 +3,4 @@ __pycache__/
 bin/
 dist/
 dap/build/
+.DS_Store

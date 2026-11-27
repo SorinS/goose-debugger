@@ -77,6 +77,8 @@ fi
 mkdir -p "$out/gdb"
 cp "$here/lldb/README.md" "$out/lldb/"
 cp "$here"/gdb/{goose_gdb.py,README.md} "$out/gdb/"
+mkdir -p "$out/docs"
+cp "$here/docs/vscode.md" "$out/docs/"
 dbg=$(git -C "$here" rev-parse --short HEAD)
 if [ -n "$(git -C "$here" status --porcelain --untracked-files=no -- dap lldb gdb)" ]; then
     dbg="$dbg + local changes"

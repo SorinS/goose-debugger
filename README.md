@@ -89,7 +89,8 @@ lldb -o 'b prog.goose:12' -o run ./prog
 
 ## Snapshots
 
-An editor (the IDEA plugin, VS Code, Neovim) is best pointed at a snapshot:
+An editor (the IDEA plugin, VS Code, Neovim) is best pointed at a snapshot
+(for VS Code and VSCodium, see [docs/vscode.md](docs/vscode.md)):
 the compiler built from `debug1` together with the standard library and
 TinyCC files of the same commit, this repo's `goose-dap` built by that
 compiler, and the debugger modules, in one directory that can live
@@ -109,6 +110,7 @@ dist/goose-debug-<goose-debugger version>-<goose master commit>-<platform>/
   bin/tcclib/         TinyCC's headers and libtcc1, for goose run --jit
   stdlib/             the standard library of that commit
   lldb/, gdb/         goose_lldb.py, goose_gdb.py
+  docs/vscode.md      setting up VS Code and VSCodium
   VERSION             goose version, the debug1, goose-debugger and master
                       commits, platform
 ```

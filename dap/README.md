@@ -65,7 +65,7 @@ The compiler is the first argument, else `$GOOSE`, else this repo's
 `bin/goose-debug`, else `goose-debug` or `goose` on `PATH`; building the
 adapter needs no `-g`. The program uses threads, so it is built with
 `goose build` (the TinyCC JIT cannot run it). It uses gslib (`sys`,
-`sys.process`, `sys.unix`, `regex`), fetched at v0.9.2 on the first build,
+`sys.process`, `sys.unix`, `regex`), fetched at v0.9.3 on the first build,
 and std, and has no C of its own. The result has a snapshot's layout, so it
 runs with no environment variable set:
 
@@ -127,6 +127,9 @@ debugged.
 
 ## In VS Code
 
+The step-by-step guide for VS Code and VSCodium is
+[docs/vscode.md](../docs/vscode.md). In short:
+
 **With the LLDB DAP extension** (`llvm-vs-code-extensions.lldb-dap`): its
 launch configurations take `debugAdapterExecutable`, which replaces the
 lldb-dap that the extension would otherwise start. Point it at goose-dap:
@@ -136,11 +139,11 @@ lldb-dap that the extension would otherwise start. Point it at goose-dap:
     "type": "lldb-dap",
     "request": "launch",
     "name": "Debug Goose program",
-    "debugAdapterExecutable": "/path/to/goose-debugger.git/dap/goose-dap",
+    "debugAdapterExecutable": "/path/to/goose-debug-v0.3.0-.../bin/goose-dap",
     "program": "${workspaceFolder}/${fileBasenameNoExtension}",
     "source": "${file}",
     "build": true,
-    "goose": "/path/to/goose",
+    "goose": "/path/to/goose-debug-v0.3.0-.../bin/goose-debug",
     "cwd": "${workspaceFolder}"
 }
 ```

@@ -36,7 +36,7 @@
 
 import std;
 import os;
-import gslib from "SorinS/gslib@v0.9.2";
+import gslib from "SorinS/gslib@v0.9.3";
 import gslib.sys;
 import gslib.sys.unix;
 import .framing;
