@@ -47,7 +47,8 @@ def compiler():
     g = os.environ.get("GOOSE")
     if g:
         return g
-    d = os.path.expanduser("~/Dev/Goose/goose.git/build-debug/goose-debug")
+    # This repo's bin/goose-debug, the compiler build.sh uses too.
+    d = os.path.join(os.path.dirname(DAP), "bin", "goose-debug" + (".exe" if os.name == "nt" else ""))
     return d if os.path.exists(d) else (shutil.which("goose") or "goose")
 
 
